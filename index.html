@@ -145,6 +145,8 @@
   .sheet textarea{resize:vertical}
   .hint{font-size:12px; color:var(--sub); margin:4px 0 2px}
   .hint.err{color:#dc2626}
+  .keep{display:flex; align-items:center; gap:7px; margin-top:12px; font-size:14px; color:var(--ink); cursor:pointer}
+  .keep input{width:18px; height:18px}
   .seg{display:flex; gap:8px; margin:6px 0 2px}
   .seg button{
     flex:1; padding:13px; border:1.5px solid var(--border); background:#fff; border-radius:11px;
@@ -310,13 +312,12 @@
   </div>
 </div>
 
-<!-- 관리자 로그인 -->
+<!-- 관리자 PIN -->
 <div class="sheet" id="login-sheet">
-  <h3>관리자 로그인</h3>
-  <label class="lbl">이메일</label>
-  <input id="login-email" type="email" autocomplete="username" inputmode="email">
-  <label class="lbl">비밀번호</label>
-  <input id="login-pw" type="password" autocomplete="current-password">
+  <h3>관리자 PIN</h3>
+  <label class="lbl">PIN (4자리)</label>
+  <input id="login-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*" placeholder="••••">
+  <label class="keep"><input type="checkbox" id="login-keep"> 로그인 유지</label>
   <div class="hint err" id="login-err" style="display:none"></div>
   <div class="row2">
     <button class="btn2 ghost" id="login-cancel">취소</button>
@@ -681,31 +682,55 @@ async function bulkApply(status) {
   }
 }
 
-/* ── 인증 ── */
+/* ── 인증 (4자리 PIN — app_settings.admin_pin, 매 로그인 시 조회) ── */
 function openLoginSheet() {
   document.getElementById("login-err").style.display = "none";
+  document.getElementById("login-pin").value = "";
+  document.getElementById("login-keep").checked = false;
   openSheetEl("login-sheet");
 }
 async function doLogin() {
-  const email = document.getElementById("login-email").value.trim();
-  const pw = document.getElementById("login-pw").value;
+  const pinEl = document.getElementById("login-pin");
+  const pin = pinEl.value.trim();
+  const keep = document.getElementById("login-keep").checked;
   const errEl = document.getElementById("login-err");
   const btn = document.getElementById("login-do");
-  if (!email || !pw) { errEl.textContent = "이메일과 비밀번호를 입력하세요."; errEl.style.display = ""; return; }
-  btn.disabled = true; btn.textContent = "로그인 중…";
+  if (!pin) { errEl.textContent = "PIN을 입력하세요."; errEl.style.display = ""; return; }
+  errEl.style.display = "none";
+  btn.disabled = true; btn.textContent = "확인 중…";
   try {
-    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+    const { data, error } = await sb.from("app_settings")
+      .select("value").eq("key", "admin_pin").single();
     if (error) throw error;
-    document.getElementById("login-pw").value = "";
-    closeSheets();   // onAuthStateChange가 UI 갱신
+    if (!data || String(data.value) !== pin) {
+      errEl.textContent = "PIN이 올바르지 않습니다.";
+      errEl.style.display = "";
+      pinEl.value = "";
+      return;
+    }
+    // 성공: 관리자 진입
+    state.isAdmin = true;
+    sessionStorage.setItem("sched_admin", "1");
+    if (keep) localStorage.setItem("sched_admin_keep", "1");
+    pinEl.value = "";
+    closeSheets();
+    updateAuthUI();
+    if (state.tab === "leave") renderLeave(); else render();
   } catch (e) {
-    errEl.textContent = "로그인 실패: " + (e.message || e);
+    errEl.textContent = "확인 실패: " + (e.message || e);
     errEl.style.display = "";
   } finally {
     btn.disabled = false; btn.textContent = "로그인";
   }
 }
-async function doLogout() { await sb.auth.signOut(); }
+function doLogout() {
+  state.isAdmin = false;
+  sessionStorage.removeItem("sched_admin");
+  localStorage.removeItem("sched_admin_keep");
+  hideBulk();   // 드래그 일괄바 열려있으면 정리
+  updateAuthUI();
+  if (state.tab === "leave") renderLeave(); else render();
+}
 
 function updateAuthUI() {
   const btn = document.getElementById("admin-btn");
@@ -1093,19 +1118,12 @@ document.getElementById("bulk-off").onclick = () => bulkApply("off");
 document.getElementById("bulk-cancel").onclick = hideBulk;
 
 /* ── 시작 ── */
-let _authReady = false;   // onAuthStateChange 최초 즉시 발동(초기 세션) 무시용
 (async function init() {
-  const { data: { session } } = await sb.auth.getSession();
-  state.isAdmin = !!session;
+  // PIN 로그인 복원: 유지(localStorage) 또는 이번 세션(sessionStorage)
+  state.isAdmin = localStorage.getItem("sched_admin_keep") === "1"
+    || sessionStorage.getItem("sched_admin") === "1";
   updateAuthUI();
-  sb.auth.onAuthStateChange((_evt, sess) => {
-    state.isAdmin = !!sess;
-    updateAuthUI();
-    // 데이터 로드 전(최초 발동)엔 render 금지, 이후 로그인/로그아웃 변화만 → 현재 탭 재렌더
-    if (_authReady) { if (state.tab === "leave") renderLeave(); else render(); }
-  });
   await goMonth(state.y, state.m);   // 데이터 로드 + 첫 렌더
-  _authReady = true;
 })();
 </script>
 </body>
