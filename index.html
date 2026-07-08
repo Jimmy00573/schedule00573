@@ -732,6 +732,7 @@ document.getElementById("grid").addEventListener("click", (e) => {
 });
 
 /* ── 시작 ── */
+let _authReady = false;   // onAuthStateChange 최초 즉시 발동(초기 세션) 무시용
 (async function init() {
   const { data: { session } } = await sb.auth.getSession();
   state.isAdmin = !!session;
@@ -739,9 +740,10 @@ document.getElementById("grid").addEventListener("click", (e) => {
   sb.auth.onAuthStateChange((_evt, sess) => {
     state.isAdmin = !!sess;
     updateAuthUI();
-    render();
+    if (_authReady) render();   // 데이터 로드 전(최초 발동)엔 render 금지, 이후 로그인/로그아웃 변화만
   });
-  await goMonth(state.y, state.m);
+  await goMonth(state.y, state.m);   // 데이터 로드 + 첫 렌더
+  _authReady = true;
 })();
 </script>
 </body>
