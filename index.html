@@ -174,35 +174,97 @@
   .pat-row.pat-head .pn{font-weight:400; color:var(--sub)}
   .pat-row .pc{width:36px; text-align:center; padding:9px 0; font-size:12px; color:var(--sub)}
   .pat-row .pc input{width:20px; height:20px}
+
+  /* 탭 */
+  .tabs{display:flex; gap:4px}
+  .tab{padding:7px 14px; border:1px solid var(--border); background:#fff; border-radius:8px; font-size:14px; font-weight:700; color:var(--sub); cursor:pointer; font-family:inherit}
+  .tab.active{background:#1e293b; color:#fff; border-color:#1e293b}
+
+  /* 하위 컨트롤 바 (스케줄/대체휴무 공통) */
+  .subbar{display:flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-bottom:1px solid var(--border); flex-wrap:wrap}
+  .subbar .mlabel{font-size:15px}
+  .lv-title{font-size:15px; font-weight:700}
+
+  /* 지급/사용 세그 (편집 세그 재사용 + 색상) */
+  .seg button.sel[data-v="grant"]{background:var(--work-bg); border-color:var(--work); color:#166534}
+  .seg button.sel[data-v="use"]{background:#fee2e2; border-color:#f87171; color:#b91c1c}
+
+  /* 대체휴무 장부 */
+  #leave-body{max-width:640px; margin:0 auto; padding:12px}
+  .lv-hd, .lv-row{display:grid; grid-template-columns:1fr 58px 58px 64px; align-items:center}
+  .lv-hd{font-size:12px; color:var(--sub); padding:6px 8px; border-bottom:2px solid var(--border)}
+  .lv-hd .lv-c{text-align:right}
+  .lv-row{padding:11px 8px; border-bottom:1px solid var(--line); cursor:pointer; font-size:14px}
+  .lv-nm{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .lv-c{text-align:right; font-variant-numeric:tabular-nums; font-size:13px}
+  .lv-c.grant{color:#16a34a} .lv-c.use{color:#dc2626}
+  .lv-c.bal{font-weight:700; color:var(--ink)} .lv-c.bal.neg{color:#dc2626}
+  .lv-detail{background:#fafbfc; border-bottom:1px solid var(--line); padding:2px 8px 6px}
+  .lv-empty{font-size:12px; color:var(--sub); padding:8px 4px}
+  .lv-line{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line)}
+  .lv-line:last-child{border-bottom:0}
+  .lb{font-size:11px; font-weight:700; padding:2px 7px; border-radius:8px; flex:0 0 auto}
+  .lb.grant{background:var(--work-bg); color:#166534}
+  .lb.use{background:#fee2e2; color:#b91c1c}
+  .lv-meta{flex:1; min-width:0}
+  .lv-cat{font-size:13px; word-break:break-word}
+  .lv-date{font-size:11px; color:var(--sub)}
+  .lv-days{font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto}
+  .lv-days.grant{color:#16a34a} .lv-days.use{color:#dc2626}
+  .lv-del{border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:6px; font-size:11px; padding:5px 8px; cursor:pointer; flex:0 0 auto; font-family:inherit}
+  #lv-emp, #lv-cat{width:100%}
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="mnav">
-    <button id="prev" aria-label="이전 달">‹</button>
-    <div class="mlabel" id="mlabel">—</div>
-    <button id="next" aria-label="다음 달">›</button>
+  <div class="tabs">
+    <button class="tab active" id="tab-sched">스케줄</button>
+    <button class="tab" id="tab-leave">대체휴무</button>
   </div>
-  <button class="btn" id="today-btn">오늘</button>
-  <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
-  <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
   <div class="spacer"></div>
   <span class="role" id="role">읽기 전용</span>
   <button class="btn" id="admin-btn">관리자</button>
 </div>
 
-<div class="legend">
-  <span><i class="sw work"></i>근무</span>
-  <span><i class="sw off"></i>휴무</span>
-  <span><i class="sw unset"></i>패턴 미설정</span>
-  <span><i class="sw exc"></i>예외</span>
-  <span><i class="sw memo"></i>메모</span>
+<!-- 스케줄 화면 -->
+<div id="schedule-view">
+  <div class="subbar">
+    <div class="mnav">
+      <button id="prev" aria-label="이전 달">‹</button>
+      <div class="mlabel" id="mlabel">—</div>
+      <button id="next" aria-label="다음 달">›</button>
+    </div>
+    <button class="btn" id="today-btn">오늘</button>
+    <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
+    <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw work"></i>근무</span>
+    <span><i class="sw off"></i>휴무</span>
+    <span><i class="sw unset"></i>패턴 미설정</span>
+    <span><i class="sw exc"></i>예외</span>
+    <span><i class="sw memo"></i>메모</span>
+  </div>
+
+  <div class="scroll" id="scroll">
+    <div class="msg" id="grid-msg">불러오는 중…</div>
+    <div id="grid"></div>
+  </div>
 </div>
 
-<div class="scroll" id="scroll">
-  <div class="msg" id="grid-msg">불러오는 중…</div>
-  <div id="grid"></div>
+<!-- 대체휴무 화면 -->
+<div id="leave-view" style="display:none">
+  <div class="subbar">
+    <div class="lv-title">대체휴무 장부</div>
+    <div class="spacer"></div>
+    <button class="btn adm-only" id="leave-add-btn" style="display:none">+ 기록 추가</button>
+  </div>
+  <div id="leave-body">
+    <div class="msg" id="leave-msg">불러오는 중…</div>
+    <div id="leave-summary"></div>
+  </div>
 </div>
 
 <!-- 공통 배경 -->
@@ -244,6 +306,34 @@
   <div class="row2">
     <button class="btn2 ghost" id="login-cancel">취소</button>
     <button class="btn2 pri" id="login-do">로그인</button>
+  </div>
+</div>
+
+<!-- 대체휴무 기록 추가 -->
+<div class="sheet" id="leave-sheet">
+  <h3>대체휴무 기록 추가</h3>
+  <label class="lbl">직원</label>
+  <select id="lv-emp"></select>
+  <div class="seg" style="margin-top:6px">
+    <button id="lv-grant" data-v="grant">지급</button>
+    <button id="lv-use" data-v="use">사용</button>
+  </div>
+  <label class="lbl">구분</label>
+  <select id="lv-cat">
+    <option>대체근무</option>
+    <option>대체휴무</option>
+    <option>경조사</option>
+    <option>예비군</option>
+  </select>
+  <label class="lbl">사유 (선택)</label>
+  <input id="lv-reason" type="text" placeholder="예) 토요일 당번">
+  <label class="lbl">일자</label>
+  <input id="lv-date" type="date">
+  <label class="lbl">일수</label>
+  <input id="lv-days" type="number" min="0.5" step="0.5" value="1" inputmode="decimal">
+  <div class="row2">
+    <button class="btn2 ghost" id="lv-cancel">취소</button>
+    <button class="btn2 pri" id="lv-save">저장</button>
   </div>
 </div>
 
@@ -298,11 +388,14 @@ const today = { y:_now.getFullYear(), m:_now.getMonth()+1, d:_now.getDate() };
 /* ── 상태 ── */
 const state = {
   y: today.y, m: today.m,
+  tab: "schedule",   // 'schedule' | 'leave'
   isAdmin: false,
   allEmployees: [],  // 전체(비활성 포함) — 직원 관리 모달용
   employees: [],     // 재직만 — 그리드용
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
+  ledger: [],     // 대체휴무 장부 전체 행
+  leaveExpanded: new Set(),  // 펼친 직원 id
 };
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -683,6 +776,143 @@ async function savePat() {
   }
 }
 
+/* ── 탭 전환 ── */
+function setTab(tab) {
+  state.tab = tab;
+  document.getElementById("schedule-view").style.display = tab === "schedule" ? "" : "none";
+  document.getElementById("leave-view").style.display = tab === "leave" ? "" : "none";
+  document.getElementById("tab-sched").classList.toggle("active", tab === "schedule");
+  document.getElementById("tab-leave").classList.toggle("active", tab === "leave");
+  if (tab === "leave") loadAndRenderLeave();
+}
+
+/* ── 대체휴무 장부 ── */
+const LEAVE_CATS = ["대체근무", "대체휴무", "경조사", "예비군"];
+let leaveDir = "grant";   // 입력 시트 지급/사용 선택
+
+const fmtDays = n => { n = Number(n) || 0; return Number.isInteger(n) ? String(n) : n.toFixed(1); };
+
+async function loadLeave() {
+  const { data, error } = await sb.from("leave_ledger")
+    .select("*").order("date", { ascending: false }).order("id", { ascending: false });
+  if (error) throw error;
+  state.ledger = data || [];
+}
+
+async function loadAndRenderLeave() {
+  const msg = document.getElementById("leave-msg");
+  msg.className = "msg"; msg.textContent = "불러오는 중…"; msg.style.display = "";
+  try {
+    if (!state.allEmployees.length) await loadAllEmployees();
+    await loadLeave();
+    msg.style.display = "none";
+    renderLeave();
+  } catch (e) {
+    msg.className = "msg err"; msg.textContent = "불러오기 실패: " + (e.message || e); msg.style.display = "";
+    console.error(e);
+  }
+}
+
+function leaveTotals() {
+  const t = {};
+  for (const r of state.ledger) {
+    if (!t[r.employee_id]) t[r.employee_id] = { grant: 0, use: 0 };
+    const d = Number(r.days) || 0;
+    if (r.direction === "grant") t[r.employee_id].grant += d; else t[r.employee_id].use += d;
+  }
+  return t;
+}
+
+function ledgerLine(r) {
+  const isGrant = r.direction === "grant";
+  const badge = isGrant ? `<span class="lb grant">지급</span>` : `<span class="lb use">사용</span>`;
+  const meta = (r.category ? esc(r.category) : "-") + (r.reason ? ` · ${esc(r.reason)}` : "");
+  const del = state.isAdmin ? `<button class="lv-del" data-id="${r.id}">삭제</button>` : "";
+  return `<div class="lv-line">
+    ${badge}
+    <div class="lv-meta"><div class="lv-cat">${meta}</div><div class="lv-date">${r.date}</div></div>
+    <div class="lv-days ${isGrant ? "grant" : "use"}">${isGrant ? "+" : "−"}${fmtDays(r.days)}</div>
+    ${del}
+  </div>`;
+}
+
+function renderLeave() {
+  const totals = leaveTotals();
+  const emps = state.employees;   // 재직, display_order
+  let html = `<div class="lv-hd"><div class="lv-nm">직원</div><div class="lv-c">지급</div><div class="lv-c">사용</div><div class="lv-c">잔여</div></div>`;
+  for (const e of emps) {
+    const t = totals[e.id] || { grant: 0, use: 0 };
+    const bal = t.grant - t.use;
+    const open = state.leaveExpanded.has(String(e.id));
+    html += `<div class="lv-row" data-eid="${e.id}">
+      <div class="lv-nm">${open ? "▾" : "▸"} ${esc(e.name)}</div>
+      <div class="lv-c grant">${fmtDays(t.grant)}</div>
+      <div class="lv-c use">${fmtDays(t.use)}</div>
+      <div class="lv-c bal ${bal < 0 ? "neg" : ""}">${fmtDays(bal)}</div>
+    </div>`;
+    if (open) {
+      const rows = state.ledger.filter(r => String(r.employee_id) === String(e.id));
+      html += `<div class="lv-detail">` +
+        (rows.length ? rows.map(ledgerLine).join("") : `<div class="lv-empty">내역 없음</div>`) +
+        `</div>`;
+    }
+  }
+  document.getElementById("leave-summary").innerHTML = html;
+}
+
+/* 입력 시트 */
+function openLeaveSheet() {
+  const sel = document.getElementById("lv-emp");
+  sel.innerHTML = state.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("");
+  setLeaveSeg("grant");
+  document.getElementById("lv-cat").selectedIndex = 0;
+  document.getElementById("lv-reason").value = "";
+  document.getElementById("lv-date").value = dateStr(today.y, today.m, today.d);
+  document.getElementById("lv-days").value = "1";
+  openSheetEl("leave-sheet");
+}
+function setLeaveSeg(v) {
+  leaveDir = v;
+  document.getElementById("lv-grant").classList.toggle("sel", v === "grant");
+  document.getElementById("lv-use").classList.toggle("sel", v === "use");
+}
+async function saveLeave() {
+  const eid = document.getElementById("lv-emp").value;
+  const cat = document.getElementById("lv-cat").value;
+  const reason = document.getElementById("lv-reason").value.trim();
+  const date = document.getElementById("lv-date").value;
+  const days = parseFloat(document.getElementById("lv-days").value);
+  if (!eid) { alert("직원을 선택하세요."); return; }
+  if (!date) { alert("일자를 입력하세요."); return; }
+  if (!(days > 0)) { alert("일수는 0보다 커야 합니다."); return; }
+  const btn = document.getElementById("lv-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const { error } = await sb.from("leave_ledger").insert({
+      employee_id: eid, direction: leaveDir, category: cat,
+      reason: reason || null, date, days,
+    });
+    if (error) throw error;
+    closeSheets();
+    await loadLeave();
+    state.leaveExpanded.add(String(eid));   // 방금 입력한 사람 펼쳐 확인
+    renderLeave();
+  } catch (e) {
+    alert("저장 실패: " + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
+}
+async function deleteLeave(id) {
+  if (!confirm("이 기록을 삭제할까요?")) return;
+  try {
+    const { error } = await sb.from("leave_ledger").delete().eq("id", id);
+    if (error) throw error;
+    await loadLeave();
+    renderLeave();
+  } catch (e) { alert("삭제 실패: " + (e.message || e)); }
+}
+
 /* ── 이벤트 ── */
 document.getElementById("prev").onclick = () => step(-1);
 document.getElementById("next").onclick = () => step(1);
@@ -721,6 +951,27 @@ document.getElementById("pat-cancel").onclick = () => document.getElementById("p
 document.getElementById("pat-copy").onclick = patCopyPrev;
 document.getElementById("pat-save").onclick = savePat;
 
+// 탭 전환
+document.getElementById("tab-sched").onclick = () => setTab("schedule");
+document.getElementById("tab-leave").onclick = () => setTab("leave");
+
+// 대체휴무
+document.getElementById("leave-add-btn").onclick = openLeaveSheet;
+document.getElementById("lv-grant").onclick = () => setLeaveSeg("grant");
+document.getElementById("lv-use").onclick = () => setLeaveSeg("use");
+document.getElementById("lv-cancel").onclick = closeSheets;
+document.getElementById("lv-save").onclick = saveLeave;
+document.getElementById("leave-summary").addEventListener("click", (e) => {
+  const del = e.target.closest(".lv-del");
+  if (del) { deleteLeave(del.dataset.id); return; }
+  const row = e.target.closest(".lv-row");
+  if (!row) return;
+  const eid = row.dataset.eid;
+  if (state.leaveExpanded.has(eid)) state.leaveExpanded.delete(eid);
+  else state.leaveExpanded.add(eid);
+  renderLeave();
+});
+
 document.getElementById("grid").addEventListener("click", (e) => {
   const td = e.target.closest("td.cell");
   if (!td) return;
@@ -740,7 +991,8 @@ let _authReady = false;   // onAuthStateChange 최초 즉시 발동(초기 세�
   sb.auth.onAuthStateChange((_evt, sess) => {
     state.isAdmin = !!sess;
     updateAuthUI();
-    if (_authReady) render();   // 데이터 로드 전(최초 발동)엔 render 금지, 이후 로그인/로그아웃 변화만
+    // 데이터 로드 전(최초 발동)엔 render 금지, 이후 로그인/로그아웃 변화만 → 현재 탭 재렌더
+    if (_authReady) { if (state.tab === "leave") renderLeave(); else render(); }
   });
   await goMonth(state.y, state.m);   // 데이터 로드 + 첫 렌더
   _authReady = true;
