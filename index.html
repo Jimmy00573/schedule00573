@@ -93,7 +93,20 @@
   td.cell.off{background:#e7ebef}               /* 휴무만 옅은 회색 */
   td.cell.exc{outline:2px solid var(--exc); outline-offset:-2px}
   td.cell.tcol{box-shadow:inset 2px 0 0 #fb923c, inset -2px 0 0 #fb923c}
+  td.cell.selecting{background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb}   /* 드래그 선택 */
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
+  body.admin #grid{-webkit-user-select:none; user-select:none}   /* 드래그 중 텍스트선택 방지 */
+
+  /* 일괄 액션바 */
+  .bulk-bar{position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:45;
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    box-shadow:0 6px 24px rgba(0,0,0,.18); padding:10px 12px; display:flex; align-items:center; gap:8px}
+  .bulk-bar #bulk-count{font-size:13px; font-weight:700; margin-right:2px; white-space:nowrap}
+  .bulk-bar button{padding:9px 15px; border-radius:9px; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--border); font-family:inherit}
+  .bulk-bar .b-work{background:var(--work-bg); border-color:var(--work); color:#166534}
+  .bulk-bar .b-off{background:#e5e7eb; border-color:#9ca3af; color:#374151}
+  .bulk-bar .b-cancel{background:#fff; color:var(--sub)}
+  .bulk-bar button:disabled{opacity:.6}
 
   /* 집계(하단 고정) */
   tfoot td{
@@ -367,6 +380,14 @@
   </div>
 </div>
 
+<!-- 드래그 다중선택 일괄 액션바 -->
+<div id="bulk-bar" class="bulk-bar" style="display:none">
+  <span id="bulk-count"></span>
+  <button class="b-work" id="bulk-work">근무</button>
+  <button class="b-off" id="bulk-off">휴무</button>
+  <button class="b-cancel" id="bulk-cancel">취소</button>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
@@ -569,28 +590,38 @@ function setSeg(v) {
   document.getElementById("seg-work").classList.toggle("sel", v === "work");
   document.getElementById("seg-off").classList.toggle("sel", v === "off");
 }
+// 그날 패턴 상태(근무/휴무)
+function patternStatusOf(eid, y, m, d) {
+  const pat = state.patterns[eid];
+  return pat ? (pat.off_weekdays.includes(weekday(y, m, d)) ? "off" : "work") : "work";
+}
+// override 커밋(단일·일괄 공용): 패턴과 같고 메모 없으면 삭제, 아니면 upsert. 로컬 state.overrides 갱신.
+async function commitOverride(eid, date, status, memo) {
+  const [y, m, d] = date.split("-").map(Number);
+  const patternStatus = patternStatusOf(eid, y, m, d);
+  memo = (memo || "").trim();
+  if (status === patternStatus && !memo) {
+    const { error } = await sb.from("schedule_overrides").delete()
+      .eq("employee_id", eid).eq("date", date);
+    if (error) throw error;
+    delete state.overrides[eid + "|" + date];
+  } else {
+    const { data, error } = await sb.from("schedule_overrides")
+      .upsert({ employee_id: eid, date, status, memo: memo || null }, { onConflict: "employee_id,date" })
+      .select().single();
+    if (error) throw error;
+    state.overrides[eid + "|" + date] = data;
+  }
+}
+
 async function saveEdit() {
   if (!editCtx) return;
-  const { eid, date, patternStatus, selStatus } = editCtx;
+  const { eid, date, selStatus } = editCtx;
   const memo = document.getElementById("edit-memo").value.trim();
   const btn = document.getElementById("edit-save");
   btn.disabled = true; btn.textContent = "저장 중…";
   try {
-    if (selStatus === patternStatus && !memo) {
-      // 패턴과 같고 메모 없음 → 예외 해제(삭제)
-      const { error } = await sb.from("schedule_overrides").delete()
-        .eq("employee_id", eid).eq("date", date);
-      if (error) throw error;
-      delete state.overrides[eid + "|" + date];
-    } else {
-      // 상태가 다르거나 메모가 있으면 upsert
-      const { data, error } = await sb.from("schedule_overrides")
-        .upsert({ employee_id: eid, date, status: selStatus, memo: memo || null },
-                { onConflict: "employee_id,date" })
-        .select().single();
-      if (error) throw error;
-      state.overrides[eid + "|" + date] = data;
-    }
+    await commitOverride(eid, date, selStatus, memo);
     closeSheets();
     render();
   } catch (e) {
@@ -598,6 +629,55 @@ async function saveEdit() {
     console.error(e);
   } finally {
     btn.disabled = false; btn.textContent = "저장";
+  }
+}
+
+/* ── 드래그 다중 선택(관리자·마우스): 같은 직원 행에서 가로 범위 → 일괄 근무/휴무 ── */
+let _drag = false, _dragEid = null, _dragStartDay = 0, _selDates = [], _dragConsumed = false, _bulkPending = null;
+const dayOf = ds => Number(ds.slice(8, 10));
+
+function paintRange(day1, day2) {
+  const g = document.getElementById("grid");
+  const lo = Math.min(day1, day2), hi = Math.max(day1, day2);
+  _selDates = [];
+  for (let d = lo; d <= hi; d++) _selDates.push(dateStr(state.y, state.m, d));
+  g.querySelectorAll("td.cell.selecting").forEach(c => c.classList.remove("selecting"));
+  for (const ds of _selDates) {
+    const c = g.querySelector(`td.cell[data-eid="${_dragEid}"][data-date="${ds}"]`);
+    if (c) c.classList.add("selecting");
+  }
+}
+function clearSelection() {
+  document.getElementById("grid").querySelectorAll("td.cell.selecting").forEach(c => c.classList.remove("selecting"));
+  _selDates = [];
+}
+function showBulk(eid, dates) {
+  _bulkPending = { eid, dates };
+  document.getElementById("bulk-count").textContent = `선택 ${dates.length}칸`;
+  document.getElementById("bulk-bar").style.display = "flex";
+}
+function hideBulk() {
+  _bulkPending = null;
+  document.getElementById("bulk-bar").style.display = "none";
+  clearSelection();
+}
+async function bulkApply(status) {
+  if (!_bulkPending) return;
+  const { eid, dates } = _bulkPending;
+  const btns = document.getElementById("bulk-bar").querySelectorAll("button");
+  btns.forEach(b => b.disabled = true);
+  try {
+    await Promise.all(dates.map(d => {
+      const ov = state.overrides[eid + "|" + d];
+      return commitOverride(eid, d, status, ov ? ov.memo : "");
+    }));
+    hideBulk();
+    render();
+  } catch (e) {
+    alert("일괄 저장 실패: " + (e.message || e));
+    console.error(e);
+  } finally {
+    btns.forEach(b => b.disabled = false);
   }
 }
 
@@ -975,6 +1055,7 @@ document.getElementById("leave-summary").addEventListener("click", (e) => {
 });
 
 document.getElementById("grid").addEventListener("click", (e) => {
+  if (_dragConsumed) { _dragConsumed = false; return; }   // 드래그 다중선택이면 시트 안 엶
   const td = e.target.closest("td.cell");
   if (!td) return;
   if (state.isAdmin) {
@@ -983,6 +1064,33 @@ document.getElementById("grid").addEventListener("click", (e) => {
     openViewSheet(td.dataset.name, td.dataset.date, td.dataset.memo);
   }
 });
+
+// 드래그 다중 선택 (관리자·마우스만; 터치/단일탭은 click으로 기존 시트)
+const _gridEl = document.getElementById("grid");
+_gridEl.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "mouse" || !state.isAdmin) return;
+  const td = e.target.closest("td.cell");
+  if (!td) return;
+  hideBulk();
+  _drag = true; _dragConsumed = false; _selDates = [];
+  _dragEid = td.dataset.eid; _dragStartDay = dayOf(td.dataset.date);
+  e.preventDefault();   // 시작 셀은 아직 칠하지 않음(이동해야 선택) → 단일클릭 깜빡임 방지
+});
+_gridEl.addEventListener("pointermove", (e) => {
+  if (!_drag) return;
+  const td = e.target.closest(`td.cell[data-eid="${_dragEid}"]`);
+  if (!td) return;
+  paintRange(_dragStartDay, dayOf(td.dataset.date));
+});
+document.addEventListener("pointerup", () => {
+  if (!_drag) return;
+  _drag = false;
+  if (_selDates.length >= 2) { _dragConsumed = true; showBulk(_dragEid, _selDates.slice()); }
+  else { clearSelection(); }   // 단일 → click 핸들러가 편집 시트 오픈
+});
+document.getElementById("bulk-work").onclick = () => bulkApply("work");
+document.getElementById("bulk-off").onclick = () => bulkApply("off");
+document.getElementById("bulk-cancel").onclick = hideBulk;
 
 /* ── 시작 ── */
 let _authReady = false;   // onAuthStateChange 최초 즉시 발동(초기 세션) 무시용
