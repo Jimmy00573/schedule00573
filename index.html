@@ -120,6 +120,31 @@
 
   .msg{padding:24px 16px; text-align:center; color:var(--sub); font-size:13px}
   .err{color:#dc2626}
+
+  /* 관리자 모드 셀 커서 */
+  body.admin td.cell{cursor:pointer}
+
+  /* 시트 공통 입력 요소 */
+  .lbl{display:block; font-size:12px; color:var(--sub); margin:10px 0 4px}
+  .sheet input, .sheet textarea{
+    width:100%; padding:11px; border:1px solid var(--border); border-radius:9px;
+    font-size:15px; font-family:inherit; box-sizing:border-box; background:#fff; color:var(--ink);
+  }
+  .sheet textarea{resize:vertical}
+  .hint{font-size:12px; color:var(--sub); margin:4px 0 2px}
+  .hint.err{color:#dc2626}
+  .seg{display:flex; gap:8px; margin:6px 0 2px}
+  .seg button{
+    flex:1; padding:13px; border:1.5px solid var(--border); background:#fff; border-radius:11px;
+    font-size:15px; font-weight:700; cursor:pointer; color:var(--sub); font-family:inherit;
+  }
+  .seg button.sel[data-v="work"]{background:var(--work-bg); border-color:var(--work); color:#166534}
+  .seg button.sel[data-v="off"]{background:#e5e7eb; border-color:#9ca3af; color:#374151}
+  .row2{display:flex; gap:8px; margin-top:16px}
+  .btn2{flex:1; padding:12px; border-radius:10px; font-size:15px; cursor:pointer; border:1px solid var(--border); font-family:inherit}
+  .btn2.ghost{background:#fff; color:var(--ink)}
+  .btn2.pri{background:#1e293b; color:#fff; border-color:#1e293b}
+  .btn2:disabled{opacity:.6}
 </style>
 </head>
 <body>
@@ -149,13 +174,46 @@
   <div id="grid"></div>
 </div>
 
-<!-- 메모 팝업 -->
+<!-- 공통 배경 -->
 <div class="sheet-bg" id="sheet-bg"></div>
-<div class="sheet" id="sheet">
-  <h3 id="sheet-title">메모</h3>
-  <div class="memo-date" id="sheet-date"></div>
-  <div class="memo-text" id="sheet-text"></div>
-  <button class="close" id="sheet-close">닫기</button>
+
+<!-- 메모 보기 -->
+<div class="sheet" id="view-sheet">
+  <h3 id="view-title">메모</h3>
+  <div class="memo-date" id="view-date"></div>
+  <div class="memo-text" id="view-text"></div>
+  <button class="close" id="view-close">닫기</button>
+</div>
+
+<!-- 관리자: 근무 편집 -->
+<div class="sheet" id="edit-sheet">
+  <h3 id="edit-title">근무 수정</h3>
+  <div class="memo-date" id="edit-date"></div>
+  <div class="seg">
+    <button id="seg-work" data-v="work">근무</button>
+    <button id="seg-off" data-v="off">휴무</button>
+  </div>
+  <div class="hint" id="edit-hint"></div>
+  <label class="lbl">메모 (선택)</label>
+  <textarea id="edit-memo" rows="2" placeholder="예) 병가, 휴무 요청"></textarea>
+  <div class="row2">
+    <button class="btn2 ghost" id="edit-cancel">닫기</button>
+    <button class="btn2 pri" id="edit-save">저장</button>
+  </div>
+</div>
+
+<!-- 관리자 로그인 -->
+<div class="sheet" id="login-sheet">
+  <h3>관리자 로그인</h3>
+  <label class="lbl">이메일</label>
+  <input id="login-email" type="email" autocomplete="username" inputmode="email">
+  <label class="lbl">비밀번호</label>
+  <input id="login-pw" type="password" autocomplete="current-password">
+  <div class="hint err" id="login-err" style="display:none"></div>
+  <div class="row2">
+    <button class="btn2 ghost" id="login-cancel">취소</button>
+    <button class="btn2 pri" id="login-do">로그인</button>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -181,6 +239,7 @@ const today = { y:_now.getFullYear(), m:_now.getMonth()+1, d:_now.getDate() };
 /* ── 상태 ── */
 const state = {
   y: today.y, m: today.m,
+  isAdmin: false,
   employees: [],
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
@@ -261,10 +320,10 @@ function render() {
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
       if (cs.isException) cls += " exc";
       if (isToday(y,m,d)) cls += " tcol";
-      const memoAttr = cs.memo
-        ? ` data-memo="${esc(cs.memo)}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"` : "";
+      const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
+        + (cs.memo ? ` data-memo="${esc(cs.memo)}"` : "");
       const dot = cs.memo ? `<span class="memo"></span>` : "";
-      row += `<td class="${cls}"${memoAttr}>${dot}</td>`;
+      row += `<td class="${cls}"${attrs}>${dot}</td>`;
     }
     tbody += row + `</tr>`;
   }
@@ -310,35 +369,159 @@ function step(delta) {
   goMonth(y, m);
 }
 
-/* ── 메모 팝업 ── */
-function openSheet(name, date, memo) {
-  document.getElementById("sheet-title").textContent = name + " 메모";
-  document.getElementById("sheet-date").textContent = date;
-  document.getElementById("sheet-text").textContent = memo;
-  document.getElementById("sheet-bg").style.display = "block";
-  requestAnimationFrame(() => document.getElementById("sheet").classList.add("open"));
+/* ── 시트(공통) ── */
+const backdrop = () => document.getElementById("sheet-bg");
+function openSheetEl(id) {
+  backdrop().style.display = "block";
+  const el = document.getElementById(id);
+  requestAnimationFrame(() => el.classList.add("open"));
 }
-function closeSheet() {
-  document.getElementById("sheet").classList.remove("open");
-  setTimeout(() => { document.getElementById("sheet-bg").style.display = "none"; }, 180);
+function closeSheets() {
+  document.querySelectorAll(".sheet.open").forEach(el => el.classList.remove("open"));
+  setTimeout(() => { backdrop().style.display = "none"; }, 180);
+}
+
+/* 메모 보기 (비관리자/메모 셀) */
+function openViewSheet(name, date, memo) {
+  document.getElementById("view-title").textContent = name + " 메모";
+  document.getElementById("view-date").textContent = date;
+  document.getElementById("view-text").textContent = memo;
+  openSheetEl("view-sheet");
+}
+
+/* ── 관리자: 근무 편집 ── */
+let editCtx = null;
+function openEditSheet(eid, date, name) {
+  const [y,m,d] = date.split("-").map(Number);
+  const emp = state.employees.find(e => String(e.id) === String(eid));
+  if (!emp) return;
+  const pat = state.patterns[eid];
+  const patternSet = !!pat;
+  const patternStatus = patternSet ? (pat.off_weekdays.includes(weekday(y,m,d)) ? "off" : "work") : "work";
+  const cs = cellStatus(emp, y, m, d);
+  editCtx = { eid, date, patternStatus, selStatus: cs.status };
+  document.getElementById("edit-title").textContent = name;
+  document.getElementById("edit-date").textContent = `${date} (${WD[weekday(y,m,d)]})`;
+  document.getElementById("edit-memo").value = cs.memo || "";
+  document.getElementById("edit-hint").textContent =
+    `패턴 기본: ${patternStatus === "off" ? "휴무" : "근무"}${patternSet ? "" : " (미설정)"}`;
+  setSeg(cs.status);
+  openSheetEl("edit-sheet");
+}
+function setSeg(v) {
+  if (editCtx) editCtx.selStatus = v;
+  document.getElementById("seg-work").classList.toggle("sel", v === "work");
+  document.getElementById("seg-off").classList.toggle("sel", v === "off");
+}
+async function saveEdit() {
+  if (!editCtx) return;
+  const { eid, date, patternStatus, selStatus } = editCtx;
+  const memo = document.getElementById("edit-memo").value.trim();
+  const btn = document.getElementById("edit-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    if (selStatus === patternStatus && !memo) {
+      // 패턴과 같고 메모 없음 → 예외 해제(삭제)
+      const { error } = await sb.from("schedule_overrides").delete()
+        .eq("employee_id", eid).eq("date", date);
+      if (error) throw error;
+      delete state.overrides[eid + "|" + date];
+    } else {
+      // 상태가 다르거나 메모가 있으면 upsert
+      const { data, error } = await sb.from("schedule_overrides")
+        .upsert({ employee_id: eid, date, status: selStatus, memo: memo || null },
+                { onConflict: "employee_id,date" })
+        .select().single();
+      if (error) throw error;
+      state.overrides[eid + "|" + date] = data;
+    }
+    closeSheets();
+    render();
+  } catch (e) {
+    alert("저장 실패: " + (e.message || e));
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
+}
+
+/* ── 인증 ── */
+function openLoginSheet() {
+  document.getElementById("login-err").style.display = "none";
+  openSheetEl("login-sheet");
+}
+async function doLogin() {
+  const email = document.getElementById("login-email").value.trim();
+  const pw = document.getElementById("login-pw").value;
+  const errEl = document.getElementById("login-err");
+  const btn = document.getElementById("login-do");
+  if (!email || !pw) { errEl.textContent = "이메일과 비밀번호를 입력하세요."; errEl.style.display = ""; return; }
+  btn.disabled = true; btn.textContent = "로그인 중…";
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+    if (error) throw error;
+    document.getElementById("login-pw").value = "";
+    closeSheets();   // onAuthStateChange가 UI 갱신
+  } catch (e) {
+    errEl.textContent = "로그인 실패: " + (e.message || e);
+    errEl.style.display = "";
+  } finally {
+    btn.disabled = false; btn.textContent = "로그인";
+  }
+}
+async function doLogout() { await sb.auth.signOut(); }
+
+function updateAuthUI() {
+  const btn = document.getElementById("admin-btn");
+  const role = document.getElementById("role");
+  if (state.isAdmin) {
+    role.textContent = "관리자";
+    btn.textContent = "로그아웃";
+    btn.onclick = doLogout;
+    document.body.classList.add("admin");
+  } else {
+    role.textContent = "읽기 전용";
+    btn.textContent = "관리자";
+    btn.onclick = openLoginSheet;
+    document.body.classList.remove("admin");
+  }
 }
 
 /* ── 이벤트 ── */
 document.getElementById("prev").onclick = () => step(-1);
 document.getElementById("next").onclick = () => step(1);
 document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m);
-document.getElementById("admin-btn").onclick = () =>
-  alert("관리자 로그인은 다음 단계(3단계)에서 활성화됩니다.");
-document.getElementById("sheet-bg").onclick = closeSheet;
-document.getElementById("sheet-close").onclick = closeSheet;
+backdrop().onclick = closeSheets;
+document.getElementById("view-close").onclick = closeSheets;
+document.getElementById("edit-cancel").onclick = closeSheets;
+document.getElementById("edit-save").onclick = saveEdit;
+document.getElementById("seg-work").onclick = () => setSeg("work");
+document.getElementById("seg-off").onclick = () => setSeg("off");
+document.getElementById("login-cancel").onclick = closeSheets;
+document.getElementById("login-do").onclick = doLogin;
+
 document.getElementById("grid").addEventListener("click", (e) => {
-  const td = e.target.closest("td[data-memo]");
+  const td = e.target.closest("td.cell");
   if (!td) return;
-  openSheet(td.dataset.name, td.dataset.date, td.dataset.memo);
+  if (state.isAdmin) {
+    openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
+  } else if (td.dataset.memo) {
+    openViewSheet(td.dataset.name, td.dataset.date, td.dataset.memo);
+  }
 });
 
 /* ── 시작 ── */
-goMonth(state.y, state.m);
+(async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  state.isAdmin = !!session;
+  updateAuthUI();
+  sb.auth.onAuthStateChange((_evt, sess) => {
+    state.isAdmin = !!sess;
+    updateAuthUI();
+    render();
+  });
+  await goMonth(state.y, state.m);
+})();
 </script>
 </body>
 </html>
