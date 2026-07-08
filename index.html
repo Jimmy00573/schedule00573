@@ -145,6 +145,35 @@
   .btn2.ghost{background:#fff; color:var(--ink)}
   .btn2.pri{background:#1e293b; color:#fff; border-color:#1e293b}
   .btn2:disabled{opacity:.6}
+
+  /* 전체화면 모달 (직원 관리 / 패턴 편집) */
+  .modal{position:fixed; inset:0; z-index:50; background:#f8fafc; display:none; flex-direction:column}
+  .modal.open{display:flex}
+  .modal-hd{flex:0 0 auto; background:#fff; border-bottom:1px solid var(--border); padding:12px 14px; display:flex; align-items:center; justify-content:space-between}
+  .modal-hd h3{margin:0; font-size:16px}
+  .modal-hd .x{border:0; background:none; font-size:20px; cursor:pointer; color:var(--sub); padding:4px 8px; line-height:1}
+  .modal-bd{flex:1 1 auto; overflow:auto; padding:14px; -webkit-overflow-scrolling:touch; max-width:640px; width:100%; margin:0 auto}
+  .modal-ft{flex:0 0 auto; border-top:1px solid var(--border); background:#fff; padding:10px 14px; display:flex; gap:8px; max-width:640px; width:100%; margin:0 auto; box-sizing:border-box}
+  .note{font-size:12px; color:var(--sub); margin:12px 2px 0; line-height:1.5}
+
+  /* 직원 관리 */
+  .emp-add{display:flex; gap:8px; margin-bottom:12px}
+  .emp-add input{flex:1; padding:11px; border:1px solid var(--border); border-radius:9px; font-size:15px; font-family:inherit; box-sizing:border-box}
+  .emp-row{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line)}
+  .emp-row.inactive{opacity:.5}
+  .emp-row .ord{display:flex; flex-direction:column; gap:3px}
+  .emp-row .ord button{width:30px; height:20px; border:1px solid var(--border); background:#fff; border-radius:5px; font-size:10px; cursor:pointer; line-height:1; padding:0}
+  .emp-row .ord button:disabled{opacity:.3}
+  .emp-row .emp-name{flex:1; padding:9px; border:1px solid var(--border); border-radius:8px; font-size:15px; font-family:inherit; box-sizing:border-box; min-width:0}
+  .emp-row .act{flex:0 0 auto}
+
+  /* 패턴 편집 */
+  .pat-row{display:flex; align-items:center; border-bottom:1px solid var(--line)}
+  .pat-row.pat-head{border-bottom:2px solid var(--border); position:sticky; top:-14px; background:#f8fafc; z-index:1}
+  .pat-row .pn{flex:1; min-width:56px; font-size:13px; font-weight:600; padding:9px 4px}
+  .pat-row.pat-head .pn{font-weight:400; color:var(--sub)}
+  .pat-row .pc{width:36px; text-align:center; padding:9px 0; font-size:12px; color:var(--sub)}
+  .pat-row .pc input{width:20px; height:20px}
 </style>
 </head>
 <body>
@@ -156,6 +185,8 @@
     <button id="next" aria-label="다음 달">›</button>
   </div>
   <button class="btn" id="today-btn">오늘</button>
+  <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
+  <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
   <div class="spacer"></div>
   <span class="role" id="role">읽기 전용</span>
   <button class="btn" id="admin-btn">관리자</button>
@@ -216,6 +247,34 @@
   </div>
 </div>
 
+<!-- 직원 관리 모달 -->
+<div class="modal" id="emp-modal">
+  <div class="modal-hd"><h3>직원 관리</h3><button class="x" id="emp-close">✕</button></div>
+  <div class="modal-bd">
+    <div class="emp-add">
+      <input id="emp-new" placeholder="새 직원 이름">
+      <button class="btn2 pri" id="emp-add" style="flex:0 0 auto">추가</button>
+    </div>
+    <div id="emp-list"></div>
+    <p class="note">순서 ▲▼ · 이름은 수정 후 다른 곳을 탭하면 저장 · 삭제 대신 재직 토글(비활성)</p>
+  </div>
+  <div class="modal-ft"><button class="btn2 ghost" id="emp-done">닫기</button></div>
+</div>
+
+<!-- 패턴 편집 모달 -->
+<div class="modal" id="pat-modal">
+  <div class="modal-hd"><h3 id="pat-title">휴무 패턴</h3><button class="x" id="pat-close">✕</button></div>
+  <div class="modal-bd">
+    <button class="btn2 ghost" id="pat-copy" style="display:none;width:100%;margin-bottom:12px">⬇ 전월 패턴 복사</button>
+    <div id="pat-list"></div>
+    <p class="note">체크 = 그 요일 휴무. 저장하면 이 달 모든 재직 직원의 휴무 패턴이 설정됩니다.</p>
+  </div>
+  <div class="modal-ft">
+    <button class="btn2 ghost" id="pat-cancel">닫기</button>
+    <button class="btn2 pri" id="pat-save">저장</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
@@ -240,7 +299,8 @@ const today = { y:_now.getFullYear(), m:_now.getMonth()+1, d:_now.getDate() };
 const state = {
   y: today.y, m: today.m,
   isAdmin: false,
-  employees: [],
+  allEmployees: [],  // 전체(비활성 포함) — 직원 관리 모달용
+  employees: [],     // 재직만 — 그리드용
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
 };
@@ -253,7 +313,7 @@ async function loadMonth(y, m) {
   const first = dateStr(y,m,1);
   const last  = dateStr(y,m,daysInMonth(y,m));
   const [emp, pat, ovr] = await Promise.all([
-    sb.from("employees").select("*").eq("active", true).order("display_order"),
+    sb.from("employees").select("*").order("display_order"),
     sb.from("monthly_patterns").select("*").eq("month", ym),
     sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
   ]);
@@ -261,7 +321,8 @@ async function loadMonth(y, m) {
   if (pat.error) throw pat.error;
   if (ovr.error) throw ovr.error;
 
-  state.employees = emp.data || [];
+  state.allEmployees = emp.data || [];
+  state.employees = state.allEmployees.filter(e => e.active);
   state.patterns = {};
   (pat.data || []).forEach(p => { state.patterns[p.employee_id] = p; });
   state.overrides = {};
@@ -485,6 +546,141 @@ function updateAuthUI() {
     btn.onclick = openLoginSheet;
     document.body.classList.remove("admin");
   }
+  document.querySelectorAll(".adm-only").forEach(el => {
+    el.style.display = state.isAdmin ? "" : "none";
+  });
+}
+
+/* ── 직원 관리 ── */
+async function loadAllEmployees() {
+  const { data, error } = await sb.from("employees").select("*").order("display_order");
+  if (error) throw error;
+  state.allEmployees = data || [];
+  state.employees = state.allEmployees.filter(e => e.active);
+}
+function openEmpModal() { renderEmpList(); document.getElementById("emp-modal").classList.add("open"); }
+function renderEmpList() {
+  const list = state.allEmployees;
+  document.getElementById("emp-list").innerHTML = list.map((e, i) => `
+    <div class="emp-row${e.active ? "" : " inactive"}">
+      <div class="ord">
+        <button data-act="up" data-id="${e.id}" ${i === 0 ? "disabled" : ""}>▲</button>
+        <button data-act="down" data-id="${e.id}" ${i === list.length - 1 ? "disabled" : ""}>▼</button>
+      </div>
+      <input class="emp-name" data-id="${e.id}" value="${esc(e.name)}">
+      <button class="btn2 ghost act" data-act="toggle" data-id="${e.id}">${e.active ? "재직" : "비활성"}</button>
+    </div>`).join("");
+}
+async function empRefresh() { await loadAllEmployees(); renderEmpList(); render(); }
+async function empAdd() {
+  const el = document.getElementById("emp-new");
+  const name = el.value.trim();
+  if (!name) return;
+  const maxOrder = state.allEmployees.reduce((m, e) => Math.max(m, e.display_order || 0), 0);
+  try {
+    const { error } = await sb.from("employees").insert({ name, display_order: maxOrder + 1, active: true });
+    if (error) throw error;
+    el.value = "";
+    await empRefresh();
+  } catch (e) { alert("추가 실패: " + (e.message || e)); }
+}
+async function empRename(id, name) {
+  name = name.trim();
+  if (!name) { renderEmpList(); return; }
+  const cur = state.allEmployees.find(e => String(e.id) === String(id));
+  if (cur && cur.name === name) return;
+  try {
+    const { error } = await sb.from("employees").update({ name }).eq("id", id);
+    if (error) throw error;
+    await empRefresh();
+  } catch (e) { alert("이름 수정 실패: " + (e.message || e)); }
+}
+async function empToggle(id) {
+  const e = state.allEmployees.find(x => String(x.id) === String(id));
+  if (!e) return;
+  try {
+    const { error } = await sb.from("employees").update({ active: !e.active }).eq("id", id);
+    if (error) throw error;
+    await empRefresh();
+  } catch (err) { alert("변경 실패: " + (err.message || err)); }
+}
+async function empMove(id, dir) {
+  const list = state.allEmployees;
+  const i = list.findIndex(e => String(e.id) === String(id));
+  const j = dir === "up" ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  const a = list[i], b = list[j];
+  try {
+    const [r1, r2] = await Promise.all([
+      sb.from("employees").update({ display_order: b.display_order }).eq("id", a.id),
+      sb.from("employees").update({ display_order: a.display_order }).eq("id", b.id),
+    ]);
+    if (r1.error) throw r1.error; if (r2.error) throw r2.error;
+    await empRefresh();
+  } catch (e) { alert("순서 변경 실패: " + (e.message || e)); }
+}
+
+/* ── 패턴 편집 ── */
+const PAT_WD = [[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"],[0,"일"]];
+function openPatModal() {
+  document.getElementById("pat-title").textContent = `${state.y}년 ${state.m}월 휴무 패턴`;
+  renderPatList(null);
+  // 그 달 패턴이 하나도 없을 때만 '전월 복사' 노출
+  const hasAny = Object.keys(state.patterns).length > 0;
+  document.getElementById("pat-copy").style.display = hasAny ? "none" : "";
+  document.getElementById("pat-modal").classList.add("open");
+}
+function renderPatList(prefill) {
+  const emps = state.employees;   // 재직만
+  const head = `<div class="pat-row pat-head"><div class="pn"></div>${
+    PAT_WD.map(([v,l]) => {
+      const c = v === 6 ? ' style="color:var(--sat)"' : v === 0 ? ' style="color:var(--sun)"' : "";
+      return `<div class="pc"${c}>${l}</div>`;
+    }).join("")}</div>`;
+  const rows = emps.map(e => {
+    const cur = (prefill && prefill[e.id]) ? prefill[e.id]
+      : (state.patterns[e.id] ? state.patterns[e.id].off_weekdays : []);
+    return `<div class="pat-row"><div class="pn">${esc(e.name)}</div>${
+      PAT_WD.map(([v]) =>
+        `<div class="pc"><input type="checkbox" data-eid="${e.id}" data-wd="${v}" ${cur.includes(v) ? "checked" : ""}></div>`
+      ).join("")}</div>`;
+  }).join("");
+  document.getElementById("pat-list").innerHTML = head + rows;
+}
+async function patCopyPrev() {
+  let py = state.y, pm = state.m - 1;
+  if (pm < 1) { pm = 12; py--; }
+  const { data, error } = await sb.from("monthly_patterns").select("*").eq("month", ymStr(py, pm));
+  if (error) { alert("전월 조회 실패: " + error.message); return; }
+  if (!data || !data.length) { alert(`전월(${ymStr(py,pm)}) 패턴이 없습니다.`); return; }
+  const map = {};
+  data.forEach(p => { map[p.employee_id] = p.off_weekdays; });
+  renderPatList(map);
+  document.getElementById("pat-copy").style.display = "none";
+}
+async function savePat() {
+  const emps = state.employees;
+  const map = {};
+  emps.forEach(e => { map[e.id] = []; });
+  document.querySelectorAll('#pat-list input[type="checkbox"]:checked').forEach(cb => {
+    if (map[cb.dataset.eid]) map[cb.dataset.eid].push(Number(cb.dataset.wd));
+  });
+  const rows = emps.map(e => ({
+    employee_id: e.id, month: ymStr(state.y, state.m),
+    off_weekdays: map[e.id].sort((a, b) => a - b),
+  }));
+  const btn = document.getElementById("pat-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const { error } = await sb.from("monthly_patterns").upsert(rows, { onConflict: "employee_id,month" });
+    if (error) throw error;
+    document.getElementById("pat-modal").classList.remove("open");
+    await goMonth(state.y, state.m);
+  } catch (e) {
+    alert("저장 실패: " + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
 }
 
 /* ── 이벤트 ── */
@@ -499,6 +695,31 @@ document.getElementById("seg-work").onclick = () => setSeg("work");
 document.getElementById("seg-off").onclick = () => setSeg("off");
 document.getElementById("login-cancel").onclick = closeSheets;
 document.getElementById("login-do").onclick = doLogin;
+
+// 직원 관리 모달
+document.getElementById("emp-btn").onclick = openEmpModal;
+document.getElementById("emp-close").onclick = () => document.getElementById("emp-modal").classList.remove("open");
+document.getElementById("emp-done").onclick = () => document.getElementById("emp-modal").classList.remove("open");
+document.getElementById("emp-add").onclick = empAdd;
+document.getElementById("emp-list").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, id } = b.dataset;
+  if (act === "up") empMove(id, "up");
+  else if (act === "down") empMove(id, "down");
+  else if (act === "toggle") empToggle(id);
+});
+document.getElementById("emp-list").addEventListener("change", (e) => {
+  const inp = e.target.closest("input.emp-name");
+  if (inp) empRename(inp.dataset.id, inp.value);
+});
+
+// 패턴 편집 모달
+document.getElementById("pat-btn").onclick = openPatModal;
+document.getElementById("pat-close").onclick = () => document.getElementById("pat-modal").classList.remove("open");
+document.getElementById("pat-cancel").onclick = () => document.getElementById("pat-modal").classList.remove("open");
+document.getElementById("pat-copy").onclick = patCopyPrev;
+document.getElementById("pat-save").onclick = savePat;
 
 document.getElementById("grid").addEventListener("click", (e) => {
   const td = e.target.closest("td.cell");
