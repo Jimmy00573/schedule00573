@@ -49,16 +49,15 @@
   }
   .legend span{display:inline-flex; align-items:center; gap:4px}
   .sw{width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,.08)}
-  .sw.work{background:var(--work)}
-  .sw.off{background:var(--off)}
-  .sw.unset{background:var(--unset)}
+  .sw.work{background:#fff}                     /* 근무=흰색(테두리로 표시) */
+  .sw.off{background:#e7ebef}                    /* 휴무=옅은 회색 */
   .sw.exc{background:#fff; outline:2px solid var(--exc); outline-offset:-2px}
   .sw.memo{background:#fff; position:relative}
   .sw.memo::after{content:""; position:absolute; right:1px; bottom:1px; width:5px; height:5px; border-radius:50%; background:var(--memo)}
 
   /* 그리드 */
   .scroll{overflow:auto; -webkit-overflow-scrolling:touch; max-height:calc(100vh - 150px)}
-  table{border-collapse:separate; border-spacing:0; width:max-content}
+  table{border-collapse:separate; border-spacing:0; width:max-content; margin:0 auto}  /* 좁으면 중앙, 넓으면 스크롤 */
   th,td{border-right:1px solid var(--line); border-bottom:1px solid var(--line)}
 
   /* 헤더(요일) */
@@ -89,9 +88,9 @@
     width:30px; min-width:30px; height:30px; padding:0; text-align:center; position:relative;
     background:#fff;
   }
-  td.cell.work{background:var(--work)}
-  td.cell.off{background:var(--off-bg)}
-  td.cell.unset{background:var(--unset)}
+  td.cell.work{background:#fff}                 /* 근무=흰색(표시 안 함) */
+  td.cell.unset{background:#fff}                /* 미설정=근무와 동일(흰색) */
+  td.cell.off{background:#e7ebef}               /* 휴무만 옅은 회색 */
   td.cell.exc{outline:2px solid var(--exc); outline-offset:-2px}
   td.cell.tcol{box-shadow:inset 2px 0 0 #fb923c, inset -2px 0 0 #fb923c}
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
@@ -243,7 +242,6 @@
   <div class="legend">
     <span><i class="sw work"></i>근무</span>
     <span><i class="sw off"></i>휴무</span>
-    <span><i class="sw unset"></i>패턴 미설정</span>
     <span><i class="sw exc"></i>예외</span>
     <span><i class="sw memo"></i>메모</span>
   </div>
