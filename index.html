@@ -150,6 +150,7 @@
 
   /* 관리자 모드 셀 커서 */
   body.admin td.cell{cursor:pointer}
+  body.admin thead th[data-date]{cursor:pointer}   /* 날짜 헤더 클릭 → 그 날 전원 일괄 */
 
   /* 시트 공통 입력 요소 */
   .lbl{display:block; font-size:12px; color:var(--sub); margin:10px 0 4px}
@@ -270,6 +271,7 @@
       <button id="next" aria-label="다음 달">›</button>
     </div>
     <button class="btn" id="today-btn">오늘</button>
+    <button class="btn adm-only" id="range-btn" style="display:none">기간</button>
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
     <span class="hol-count" id="hol-count"></span>
@@ -368,6 +370,32 @@
   <div class="row2">
     <button class="btn2 ghost" id="lv-cancel">취소</button>
     <button class="btn2 pri" id="lv-save">저장</button>
+  </div>
+</div>
+
+<!-- 기간 지정 일괄 입력 (관리자) -->
+<div class="sheet" id="range-sheet">
+  <h3>기간 일괄 입력</h3>
+  <label class="lbl">직원</label>
+  <select id="rg-emp"></select>
+  <div class="seg" style="margin-top:6px">
+    <button id="rg-work" data-v="work">근무</button>
+    <button id="rg-off" data-v="off">휴무</button>
+  </div>
+  <div class="row2" style="margin-top:12px">
+    <div style="flex:1">
+      <label class="lbl">시작일</label>
+      <input id="rg-start" type="date">
+    </div>
+    <div style="flex:1">
+      <label class="lbl">종료일</label>
+      <input id="rg-end" type="date">
+    </div>
+  </div>
+  <div class="hint" id="rg-hint"></div>
+  <div class="row2">
+    <button class="btn2 ghost" id="rg-cancel">취소</button>
+    <button class="btn2 pri" id="rg-apply">적용</button>
   </div>
 </div>
 
@@ -513,7 +541,7 @@ function render() {
     if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
     if (isToday(y,m,d)) cls += " today";
     const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holName)}</div>` : "";
-    thead += `<th class="${cls.trim()}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
+    thead += `<th class="${cls.trim()}" data-date="${dateStr(y,m,d)}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
   }
   thead += `</tr>`;
 
@@ -759,9 +787,11 @@ function clearSelection() {
   document.getElementById("grid").querySelectorAll("td.cell.selecting").forEach(c => c.classList.remove("selecting"));
   _selDates = [];
 }
-function showBulk(eid, dates) {
-  _bulkPending = { eid, dates };
-  document.getElementById("bulk-count").textContent = `선택 ${dates.length}칸`;
+// targets: [{eid, date}] — 드래그(같은 직원 여러 날)·헤더 클릭(같은 날 전원) 공용
+function showBulk(targets, label) {
+  if (!targets.length) return;
+  _bulkPending = { targets };
+  document.getElementById("bulk-count").textContent = label;
   document.getElementById("bulk-bar").style.display = "flex";
 }
 function hideBulk() {
@@ -771,13 +801,13 @@ function hideBulk() {
 }
 async function bulkApply(status) {
   if (!_bulkPending) return;
-  const { eid, dates } = _bulkPending;
+  const { targets } = _bulkPending;
   const btns = document.getElementById("bulk-bar").querySelectorAll("button");
   btns.forEach(b => b.disabled = true);
   try {
-    await Promise.all(dates.map(d => {
-      const ov = state.overrides[eid + "|" + d];
-      return commitOverride(eid, d, status, ov ? ov.memo : "");
+    await Promise.all(targets.map(t => {
+      const ov = state.overrides[t.eid + "|" + t.date];
+      return commitOverride(t.eid, t.date, status, ov ? ov.memo : "");   // 메모 유지, 패턴과 같아지면 자동 삭제
     }));
     hideBulk();
     render();
@@ -786,6 +816,70 @@ async function bulkApply(status) {
     console.error(e);
   } finally {
     btns.forEach(b => b.disabled = false);
+  }
+}
+// 날짜 헤더 클릭 → 그 날 재직 전원 대상으로 액션바 표시
+function openHeaderBulk(ds) {
+  const [ , m, d] = ds.split("-").map(Number);
+  const targets = state.employees.map(e => ({ eid: e.id, date: ds }));
+  if (!targets.length) return;
+  clearSelection();
+  showBulk(targets, `${m}월 ${d}일 전원`);
+}
+
+/* ── 기간 지정 일괄 입력(관리자): 직원(또는 전원) × 시작~종료일 → commitOverride 재사용 ── */
+let rangeDir = "work";   // 근무/휴무 선택
+function openRangeSheet() {
+  const sel = document.getElementById("rg-emp");
+  sel.innerHTML = `<option value="">전원</option>` +
+    state.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("");
+  setRangeSeg("work");
+  const first = dateStr(state.y, state.m, 1);
+  const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  const s = document.getElementById("rg-start"), en = document.getElementById("rg-end");
+  s.min = first;  s.max = last;  s.value = first;   // 현재 표시 월 내로 제한
+  en.min = first; en.max = last; en.value = last;
+  const hint = document.getElementById("rg-hint");
+  hint.classList.remove("err");
+  hint.textContent = `${state.y}년 ${state.m}월 내에서 지정하세요.`;
+  openSheetEl("range-sheet");
+}
+function setRangeSeg(v) {
+  rangeDir = v;
+  document.getElementById("rg-work").classList.toggle("sel", v === "work");
+  document.getElementById("rg-off").classList.toggle("sel", v === "off");
+}
+async function applyRange() {
+  const eidSel = document.getElementById("rg-emp").value;   // "" = 전원
+  const startS = document.getElementById("rg-start").value;
+  const endS   = document.getElementById("rg-end").value;
+  const hint = document.getElementById("rg-hint");
+  const setErr = msg => { hint.textContent = msg; hint.classList.add("err"); };
+  if (!startS || !endS) return setErr("시작일·종료일을 입력하세요.");
+  if (startS > endS)    return setErr("시작일이 종료일보다 늦습니다.");
+  const first = dateStr(state.y, state.m, 1);
+  const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  if (startS < first || endS > last) return setErr(`${state.y}년 ${state.m}월 내에서만 지정할 수 있습니다.`);
+  const emps = eidSel ? state.employees.filter(e => String(e.id) === String(eidSel)) : state.employees;
+  if (!emps.length) return setErr("대상 직원이 없습니다.");
+  // 현재 달 범위이므로 일(day) 단위 순회
+  const sd = Number(startS.slice(8, 10)), ed = Number(endS.slice(8, 10));
+  const targets = [];
+  emps.forEach(e => { for (let d = sd; d <= ed; d++) targets.push({ eid: e.id, date: dateStr(state.y, state.m, d) }); });
+  const btn = document.getElementById("rg-apply");
+  btn.disabled = true; btn.textContent = "적용 중…";
+  try {
+    await Promise.all(targets.map(t => {
+      const ov = state.overrides[t.eid + "|" + t.date];
+      return commitOverride(t.eid, t.date, rangeDir, ov ? ov.memo : "");   // 메모 유지, 패턴과 같아지면 자동 삭제
+    }));
+    closeSheets();
+    render();
+  } catch (e) {
+    setErr("적용 실패: " + (e.message || e));
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = "적용";
   }
 }
 
@@ -1189,6 +1283,8 @@ document.getElementById("leave-summary").addEventListener("click", (e) => {
 
 document.getElementById("grid").addEventListener("click", (e) => {
   if (_dragConsumed) { _dragConsumed = false; return; }   // 드래그 다중선택이면 시트 안 엶
+  const th = e.target.closest("th[data-date]");   // 날짜 헤더 클릭 → 그 날 전원 일괄(관리자만)
+  if (th) { if (state.isAdmin) openHeaderBulk(th.dataset.date); return; }
   const td = e.target.closest("td.cell");
   if (!td) return;
   if (state.isAdmin) {
@@ -1218,12 +1314,21 @@ _gridEl.addEventListener("pointermove", (e) => {
 document.addEventListener("pointerup", () => {
   if (!_drag) return;
   _drag = false;
-  if (_selDates.length >= 2) { _dragConsumed = true; showBulk(_dragEid, _selDates.slice()); }
-  else { clearSelection(); }   // 단일 → click 핸들러가 편집 시트 오픈
+  if (_selDates.length >= 2) {
+    _dragConsumed = true;
+    showBulk(_selDates.map(d => ({ eid: _dragEid, date: d })), `선택 ${_selDates.length}칸`);
+  } else { clearSelection(); }   // 단일 → click 핸들러가 편집 시트 오픈
 });
 document.getElementById("bulk-work").onclick = () => bulkApply("work");
 document.getElementById("bulk-off").onclick = () => bulkApply("off");
 document.getElementById("bulk-cancel").onclick = hideBulk;
+
+// 기간 지정 일괄 입력
+document.getElementById("range-btn").onclick = openRangeSheet;
+document.getElementById("rg-work").onclick = () => setRangeSeg("work");
+document.getElementById("rg-off").onclick = () => setRangeSeg("off");
+document.getElementById("rg-cancel").onclick = closeSheets;
+document.getElementById("rg-apply").onclick = applyRange;
 
 /* ── 시작 ── */
 (async function init() {
