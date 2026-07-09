@@ -267,11 +267,13 @@
     border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap}
   #rg-emp label:has(input:checked){background:var(--work-bg); border-color:var(--work); color:#166534}
   #rg-emp input{width:16px; height:16px}
-  #rg-type{width:100%}
-  #rg-reasons{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 6px}
-  .rg-rsn{border:1px solid var(--border); background:#fff; color:var(--ink); font-family:inherit;
-    font-size:13px; padding:6px 11px; border-radius:999px; cursor:pointer}
-  .rg-rsn.sel{background:#eef2ff; border-color:var(--memo); color:var(--memo)}
+  #rg-type-btns{display:flex; flex-direction:column; gap:8px; margin:4px 0 2px}
+  .rg-type-group{display:flex; flex-wrap:wrap; align-items:center; gap:6px}
+  .rg-type-cat{font-size:11px; font-weight:700; color:var(--sub); width:34px; flex:0 0 34px}
+  .rg-type{border:1px solid var(--border); background:#fff; color:var(--ink); font-family:inherit;
+    font-size:13px; padding:7px 12px; border-radius:9px; cursor:pointer}
+  .rg-type.sel{background:var(--work-bg); border-color:var(--work); color:#166534; font-weight:700}   /* 근무 계열 선택 */
+  .rg-type.sel.off-type{background:#e5e7eb; border-color:#9ca3af; color:#374151}                       /* 휴무 계열 선택 */
 
   /* 연차 관리 (대체휴무 lv-* 클래스 재사용) */
   #annual-body{max-width:640px; margin:0 auto; padding:12px}
@@ -490,14 +492,20 @@
   </div>
   <div id="rg-emp"></div>
   <label class="lbl">유형</label>
-  <select id="rg-type">
-    <option value="work">근무</option>
-    <option value="off">휴무</option>
-    <option value="annual">연차</option>
-    <option value="leave_use">대체휴무</option>
-    <option value="leave_grant">대체근무</option>
-    <option value="etc">경조사및기타</option>
-  </select>
+  <div id="rg-type-btns">
+    <div class="rg-type-group">
+      <span class="rg-type-cat">근무</span>
+      <button type="button" class="rg-type" data-t="work">근무</button>
+      <button type="button" class="rg-type" data-t="leave_grant">대체근무</button>
+    </div>
+    <div class="rg-type-group">
+      <span class="rg-type-cat">휴무</span>
+      <button type="button" class="rg-type" data-t="off">휴무</button>
+      <button type="button" class="rg-type" data-t="annual">연차</button>
+      <button type="button" class="rg-type" data-t="leave_use">대체휴무</button>
+      <button type="button" class="rg-type" data-t="etc">경조사및기타</button>
+    </div>
+  </div>
   <div class="row2" style="margin-top:12px">
     <div style="flex:1">
       <label class="lbl">시작일</label>
@@ -509,15 +517,7 @@
     </div>
   </div>
   <label class="lbl">사유 (선택)</label>
-  <div id="rg-reasons">
-    <button type="button" class="rg-rsn" data-r="휴가">휴가</button>
-    <button type="button" class="rg-rsn" data-r="출장">출장</button>
-    <button type="button" class="rg-rsn" data-r="병가">병가</button>
-    <button type="button" class="rg-rsn" data-r="경조사">경조사</button>
-    <button type="button" class="rg-rsn" data-r="예비군">예비군</button>
-    <button type="button" class="rg-rsn" data-r="개인">개인</button>
-  </div>
-  <input id="rg-reason" type="text" placeholder="직접 입력 가능">
+  <input id="rg-reason" type="text" placeholder="예) 여름휴가 (선택 입력)">
   <div class="hint" id="rg-hint"></div>
   <div class="row2">
     <button class="btn2 ghost" id="rg-cancel">취소</button>
@@ -1125,14 +1125,23 @@ const RANGE_TYPES = {
   leave_grant: { label: "대체근무",    status: "work", ledger: "leave_grant" },
   etc:         { label: "경조사및기타", status: "off",  ledger: "etc" },
 };
+let rangeType = "";   // 선택된 유형(빈값=미선택)
+function setRangeType(t) {
+  rangeType = t;
+  const def = RANGE_TYPES[t];
+  document.querySelectorAll("#rg-type-btns .rg-type").forEach(b => {
+    const sel = b.dataset.t === t;
+    b.classList.toggle("sel", sel);
+    b.classList.toggle("off-type", sel && def && def.status === "off");   // 휴무 계열은 회색 강조
+  });
+}
 function openRangeSheet() {
   const box = document.getElementById("rg-emp");
   box.innerHTML = state.employees.map(e =>
     `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
   updateRgAllLabel();
   document.getElementById("rg-reason").value = "";
-  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.remove("sel"));
-  document.getElementById("rg-type").value = "off";
+  setRangeType("");   // 유형 미선택으로 시작
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
   const s = document.getElementById("rg-start"), en = document.getElementById("rg-end");
@@ -1156,11 +1165,6 @@ async function ledgerInsertDedup(table, empIds, dates, extraEq, buildRow) {
     const { error: insErr } = await sb.from(table).insert(rows);
     if (insErr) throw insErr;
   }
-}
-// 사유 빠른 버튼 → 입력칸 채우고 그 칩만 강조
-function setRgReason(v) {
-  document.getElementById("rg-reason").value = v;
-  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.toggle("sel", b.dataset.r === v));
 }
 // 전원 선택/해제 토글 버튼 라벨 갱신(전부 체크면 '전원 해제')
 function updateRgAllLabel() {
@@ -1190,8 +1194,9 @@ async function applyRange() {
   const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
   const reason = document.getElementById("rg-reason").value.trim();
-  const type = document.getElementById("rg-type").value;
-  const def = RANGE_TYPES[type] || RANGE_TYPES.off;
+  const type = rangeType;
+  if (!type || !RANGE_TYPES[type]) return setErr("유형을 선택하세요.");
+  const def = RANGE_TYPES[type];
   // 스케줄 memo: 근무/휴무는 사유만(빈값 허용), 특수 유형은 사유 없으면 유형명
   const memoBase = (type === "work" || type === "off") ? reason : (reason || def.label);
   // 현재 달 범위이므로 일(day) 단위 순회
@@ -1894,12 +1899,8 @@ document.getElementById("bulk-cancel").onclick = hideBulk;
 document.getElementById("range-btn").onclick = openRangeSheet;
 document.getElementById("rg-all").onclick = toggleRgAll;
 document.getElementById("rg-emp").addEventListener("change", updateRgAllLabel);   // 개별 체크 시 전원 버튼 라벨 갱신
-document.getElementById("rg-reasons").addEventListener("click", (e) => {
-  const b = e.target.closest(".rg-rsn"); if (b) setRgReason(b.dataset.r);
-});
-document.getElementById("rg-reason").addEventListener("input", (e) => {   // 직접 입력 시 일치하는 칩만 강조
-  const v = e.target.value.trim();
-  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.toggle("sel", b.dataset.r === v));
+document.getElementById("rg-type-btns").addEventListener("click", (e) => {   // 유형 버튼 선택
+  const b = e.target.closest(".rg-type"); if (b) setRangeType(b.dataset.t);
 });
 document.getElementById("rg-cancel").onclick = closeSheets;
 document.getElementById("rg-apply").onclick = applyRange;
