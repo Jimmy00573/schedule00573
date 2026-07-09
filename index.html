@@ -53,6 +53,21 @@
   .sw.memo{background:#fff; position:relative}
   .sw.memo::after{content:""; position:absolute; right:1px; bottom:1px; width:5px; height:5px; border-radius:50%; background:var(--memo)}
 
+  /* 대체휴무 잔여 요약 바 (스케줄 상단) */
+  .leave-bar{
+    display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px;
+    padding:8px 12px; background:#fff; border-bottom:1px solid var(--border);
+    max-width:1040px; margin:0 auto;
+  }
+  .leave-bar .lbar-title{font-size:11px; color:var(--sub); font-weight:700; margin-right:2px; white-space:nowrap}
+  .lchip{
+    display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--ink);
+    background:#fff; border:1px solid var(--border); border-radius:999px; padding:3px 9px; white-space:nowrap;
+  }
+  .lchip b{font-weight:700; font-variant-numeric:tabular-nums}
+  .lchip.neg{color:#dc2626; border-color:#fecaca}
+  .lchip.neg b{color:#dc2626}
+
   /* 그리드 */
   .scroll{overflow:auto; -webkit-overflow-scrolling:touch; max-height:calc(100vh - 150px)}
   table{border-collapse:separate; border-spacing:0; width:max-content; margin:0 auto}  /* 좁으면 중앙, 넓으면 스크롤 */
@@ -261,6 +276,8 @@
     <span><i class="sw off"></i>휴무</span>
     <span><i class="sw memo"></i>메모</span>
   </div>
+
+  <div class="leave-bar" id="leave-bar" style="display:none"></div>
 
   <div class="scroll" id="scroll">
     <div class="msg" id="grid-msg">불러오는 중…</div>
@@ -473,6 +490,7 @@ function render() {
     const msg = document.getElementById("grid-msg");
     msg.textContent = "재직 중인 직원이 없습니다.";
     msg.style.display = "";
+    renderLeaveBar();
     return;
   }
   document.getElementById("grid-msg").style.display = "none";
@@ -519,6 +537,25 @@ function render() {
 
   document.getElementById("grid").innerHTML =
     `<table><thead>${thead}</thead><tbody>${tbody}</tbody><tfoot>${workRow}${offRow}</tfoot></table>`;
+
+  renderLeaveBar();
+}
+
+/* ── 스케줄 상단: 직원별 대체휴무 잔여 요약 바 (대체휴무 탭 계산 로직 재사용) ── */
+function renderLeaveBar() {
+  const bar = document.getElementById("leave-bar");
+  if (!bar) return;
+  const emps = state.employees;   // 재직, display_order
+  if (!emps.length) { bar.innerHTML = ""; bar.style.display = "none"; return; }
+  const totals = leaveTotals();   // {eid:{grant,use}} — 대체휴무 탭과 동일 함수
+  const chips = emps.map(e => {
+    const t = totals[e.id] || { grant: 0, use: 0 };
+    const bal = t.grant - t.use;
+    const neg = bal <= 0 ? " neg" : "";
+    return `<span class="lchip${neg}">${esc(e.name)} <b>${fmtDays(bal)}</b></span>`;
+  }).join("");
+  bar.innerHTML = `<span class="lbar-title">대체휴무 잔여</span>${chips}`;
+  bar.style.display = "flex";
 }
 
 /* ── 월 이동 ── */
@@ -528,7 +565,7 @@ async function goMonth(y, m) {
   msg.textContent = "불러오는 중…"; msg.className = "msg"; msg.style.display = "";
   document.getElementById("grid").innerHTML = "";
   try {
-    await loadMonth(y, m);
+    await Promise.all([loadMonth(y, m), loadLeave()]);   // 스케줄 + 대체휴무 잔여(요약 바용)
     render();
   } catch (e) {
     document.getElementById("grid").innerHTML = "";
@@ -888,6 +925,7 @@ function setTab(tab) {
   document.getElementById("tab-sched").classList.toggle("active", tab === "schedule");
   document.getElementById("tab-leave").classList.toggle("active", tab === "leave");
   if (tab === "leave") loadAndRenderLeave();
+  else renderLeaveBar();   // 대체휴무 탭에서 편집 후 돌아오면 최신 잔여 반영(state.ledger 최신 유지)
 }
 
 /* ── 대체휴무 장부 ── */
