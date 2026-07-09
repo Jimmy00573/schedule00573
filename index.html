@@ -218,6 +218,10 @@
   .pat-row.pat-head .pn{font-weight:400; color:var(--sub)}
   .pat-row .pc{width:36px; text-align:center; padding:9px 0; font-size:12px; color:var(--sub)}
   .pat-row .pc input{width:20px; height:20px}
+  /* 일괄 토글: 요일 헤더·직원 이름 클릭 가능 */
+  .pat-row.pat-head .pc.pat-hd-wd{cursor:pointer; user-select:none}
+  .pat-row .pn.pat-emp{cursor:pointer; user-select:none}
+  .pat-row.pat-head .pc.pat-hd-wd:hover, .pat-row .pn.pat-emp:hover{text-decoration:underline; color:var(--ink)}
 
   /* 전체 중앙 정렬 (표와 같은 축의 가운데 기둥) */
   .topbar, .legend, #schedule-view .subbar, .scroll{max-width:1040px; margin-left:auto; margin-right:auto}
@@ -453,7 +457,7 @@
   <div class="modal-bd">
     <button class="btn2 ghost" id="pat-copy" style="display:none;width:100%;margin-bottom:12px">⬇ 전월 패턴 복사</button>
     <div id="pat-list"></div>
-    <p class="note">체크 = 그 요일 휴무. 저장하면 이 달 모든 재직 직원의 휴무 패턴이 설정됩니다.</p>
+    <p class="note">체크 = 그 요일 휴무. <b>요일 헤더</b>나 <b>직원 이름</b>을 누르면 그 줄 전체가 일괄 토글됩니다. 저장하면 이 달 모든 재직 직원의 휴무 패턴이 설정됩니다.</p>
   </div>
   <div class="modal-ft">
     <button class="btn2 ghost" id="pat-cancel">닫기</button>
@@ -1174,17 +1178,24 @@ function renderPatList(prefill) {
   const head = `<div class="pat-row pat-head"><div class="pn"></div>${
     PAT_WD.map(([v,l]) => {
       const c = v === 6 ? ' style="color:var(--sat)"' : v === 0 ? ' style="color:var(--sun)"' : "";
-      return `<div class="pc"${c}>${l}</div>`;
+      return `<div class="pc pat-hd-wd" data-wd="${v}"${c}>${l}</div>`;   // 요일 헤더 클릭 → 전 직원 그 요일 토글
     }).join("")}</div>`;
   const rows = emps.map(e => {
     const cur = (prefill && prefill[e.id]) ? prefill[e.id]
       : (state.patterns[e.id] ? state.patterns[e.id].off_weekdays : []);
-    return `<div class="pat-row"><div class="pn">${esc(e.name)}</div>${
+    return `<div class="pat-row"><div class="pn pat-emp" data-eid="${e.id}">${esc(e.name)}</div>${
       PAT_WD.map(([v]) =>
         `<div class="pc"><input type="checkbox" data-eid="${e.id}" data-wd="${v}" ${cur.includes(v) ? "checked" : ""}></div>`
       ).join("")}</div>`;
   }).join("");
   document.getElementById("pat-list").innerHTML = head + rows;
+}
+// 체크박스 묶음 토글: 전부 체크면 전부 해제, 아니면 전부 체크. DOM 상태만 변경(저장은 savePat)
+function patToggleBoxes(boxes) {
+  const arr = Array.from(boxes);
+  if (!arr.length) return;
+  const allChecked = arr.every(cb => cb.checked);
+  arr.forEach(cb => { cb.checked = !allChecked; });
 }
 async function patCopyPrev() {
   let py = state.y, pm = state.m - 1;
@@ -1397,6 +1408,13 @@ document.getElementById("pat-close").onclick = () => document.getElementById("pa
 document.getElementById("pat-cancel").onclick = () => document.getElementById("pat-modal").classList.remove("open");
 document.getElementById("pat-copy").onclick = patCopyPrev;
 document.getElementById("pat-save").onclick = savePat;
+// 일괄 토글: 요일 헤더 클릭 → 전 직원 그 요일 / 직원 이름 클릭 → 그 직원 요일 전체 (DOM만, 저장은 저장버튼)
+document.getElementById("pat-list").addEventListener("click", (e) => {
+  const wd = e.target.closest(".pat-hd-wd");
+  if (wd) { patToggleBoxes(document.querySelectorAll(`#pat-list input[data-wd="${wd.dataset.wd}"]`)); return; }
+  const nm = e.target.closest(".pat-emp");
+  if (nm) { patToggleBoxes(document.querySelectorAll(`#pat-list input[data-eid="${nm.dataset.eid}"]`)); return; }
+});
 
 // 탭 전환
 document.getElementById("tab-sched").onclick = () => setTab("schedule");
