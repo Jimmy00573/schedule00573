@@ -68,6 +68,14 @@
   .lchip.neg{color:#dc2626; border-color:#fecaca}
   .lchip.neg b{color:#dc2626}
 
+  /* 오늘 근무 인원 바 */
+  .today-crew{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px;
+    padding:8px 12px; background:#eff6ff; border-bottom:1px solid var(--border);
+    max-width:1040px; margin:0 auto}
+  .today-crew .tc-title{font-size:12px; font-weight:700; color:#1d4ed8; white-space:nowrap}
+  .today-crew .tc-names{font-size:12px; color:var(--ink)}
+  .today-crew .tc-names.tc-none{color:var(--sub)}
+
   /* 월 근무 집계(관리자 전용) */
   .work-summary{max-width:640px; margin:14px auto 26px; padding:0 12px}
   .work-summary .ws-title{font-size:13px; font-weight:700; color:var(--ink); margin:4px 2px 8px}
@@ -99,7 +107,7 @@
   thead th.hol .dwd{color:var(--sun)} thead th.hol .dnum{color:var(--sun)}   /* 공휴일=일요일 톤 빨강(토/일보다 우선) */
   /* 공휴일 이름: 고정 폭(30px)으로 클립 → 긴 이름이 셀을 밀어 넓히지 못하게(가로 스크롤 방지). 한 줄 고정. */
   thead th .dhol{font-size:9px; line-height:1.1; height:11px; color:var(--sun); font-weight:600; max-width:30px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  thead th.today{background:#f3f4f6; box-shadow:inset 0 -2px 0 #cbd5e1}
+  thead th.today{background:#eff6ff; box-shadow:inset 0 3px 0 #3b82f6, inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
   thead th.today .dnum{font-weight:700}
 
   /* 이름 열(좌측 고정) */
@@ -125,7 +133,10 @@
   td.cell.span{background:#eef2ff}
   td.cell.span-start, td.cell.span-mid{border-right-color:transparent}
   td.cell .span-label{font-size:9px; line-height:1.1; color:var(--memo); font-weight:700; display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}
-  /* 예외(exc)·오늘열(tcol) 시각 강조 없음 — 근무 흰색/휴무 회색 결과만 표시 */
+  /* 오늘 열: 좌우 세로 강조선(세로줄) + 반투명 파랑 틴트(휴무 회색·띠 위에서도 은은히 구분) */
+  td.cell.tcol{box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
+  td.cell.tcol::after{content:""; position:absolute; inset:0; background:rgba(59,130,246,.09); pointer-events:none}
+  td.cell.tcol > *{position:relative; z-index:1}   /* 메모 점·띠 라벨을 틴트 위로 */
   td.cell.selecting{background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb}   /* 드래그 선택 */
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
   body.admin #grid{-webkit-user-select:none; user-select:none}   /* 드래그 중 텍스트선택 방지 */
@@ -148,7 +159,7 @@
   }
   tfoot td.name{z-index:9; background:#eef2f7; color:var(--sub); font-weight:600}
   tfoot tr.off-row td{color:var(--sub); font-weight:600}
-  tfoot td.tcol{background:#f3f4f6}
+  tfoot td.tcol{background:#eff6ff; box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
 
   /* 메모 팝업 */
   .sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; z-index:40}
@@ -328,6 +339,8 @@
     <span><i class="sw off"></i>휴무</span>
     <span><i class="sw memo"></i>메모</span>
   </div>
+
+  <div class="today-crew" id="today-crew" style="display:none"></div>
 
   <div class="leave-bar" id="leave-bar" style="display:none"></div>
 
@@ -648,6 +661,7 @@ function render() {
     msg.textContent = "재직 중인 직원이 없습니다.";
     msg.style.display = "";
     renderLeaveBar();
+    renderTodayCrew();
     renderWorkSummary();
     return;
   }
@@ -724,6 +738,7 @@ function render() {
     `<table><thead>${thead}</thead><tbody>${tbody}</tbody><tfoot>${workRow}${offRow}</tfoot></table>`;
 
   renderLeaveBar();
+  renderTodayCrew();
   renderWorkSummary();
 }
 
@@ -742,6 +757,20 @@ function renderLeaveBar() {
   }).join("");
   bar.innerHTML = `<span class="lbar-title">대체휴무 잔여</span>${chips}`;
   bar.style.display = "flex";
+}
+
+/* ── 오늘 근무 인원 목록(보는 달에 오늘 포함 시만) — cellStatus 재사용 ── */
+function renderTodayCrew() {
+  const el = document.getElementById("today-crew");
+  if (!el) return;
+  if (!(state.y === today.y && state.m === today.m) || !state.employees.length) {
+    el.innerHTML = ""; el.style.display = "none"; return;
+  }
+  const working = state.employees.filter(e => cellStatus(e, today.y, today.m, today.d).status !== "off");
+  const names = working.map(e => esc(e.name)).join(", ");
+  el.innerHTML = `<span class="tc-title">오늘 ${today.m}/${today.d} 근무 ${working.length}명</span>`
+    + (names ? `<span class="tc-names">${names}</span>` : `<span class="tc-names tc-none">전원 휴무</span>`);
+  el.style.display = "flex";
 }
 
 /* ── 근무시간(app_settings) ── */
