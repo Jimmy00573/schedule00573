@@ -229,7 +229,7 @@
 
   /* 전체 중앙 정렬 (표와 같은 축의 가운데 기둥) */
   .topbar, .legend, #schedule-view .subbar, .scroll{max-width:1040px; margin-left:auto; margin-right:auto}
-  #leave-view .subbar{max-width:640px; margin-left:auto; margin-right:auto}  /* 대체휴무 본문(640)과 동일 축 */
+  #leave-view .subbar, #annual-view .subbar{max-width:640px; margin-left:auto; margin-right:auto}  /* 대체휴무·연차 본문(640)과 동일 축 */
 
   /* 탭 */
   .tabs{display:flex; gap:4px}
@@ -260,6 +260,13 @@
   .rg-rsn{border:1px solid var(--border); background:#fff; color:var(--ink); font-family:inherit;
     font-size:13px; padding:6px 11px; border-radius:999px; cursor:pointer}
   .rg-rsn.sel{background:#eef2ff; border-color:var(--memo); color:var(--memo)}
+
+  /* 연차 관리 (대체휴무 lv-* 클래스 재사용) */
+  #annual-body{max-width:640px; margin:0 auto; padding:12px}
+  .an-grant{display:flex; align-items:center; gap:6px; padding:8px; border-bottom:2px solid var(--border); font-size:14px; color:var(--ink)}
+  .an-grant b{font-size:16px; font-variant-numeric:tabular-nums}
+  .an-grant .an-grant-editwrap{display:inline-flex; gap:6px; align-items:center}
+  .an-grant .an-grant-editwrap input{width:64px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; box-sizing:border-box}
 
   /* 대체휴무 장부 */
   #leave-body{max-width:640px; margin:0 auto; padding:12px}
@@ -293,6 +300,7 @@
   <div class="tabs">
     <button class="tab active" id="tab-sched">스케줄</button>
     <button class="tab" id="tab-leave">대체휴무</button>
+    <button class="tab" id="tab-annual">연차</button>
   </div>
   <div class="spacer"></div>
   <span class="role" id="role">읽기 전용</span>
@@ -341,6 +349,27 @@
   <div id="leave-body">
     <div class="msg" id="leave-msg">불러오는 중…</div>
     <div id="leave-summary"></div>
+  </div>
+</div>
+
+<!-- 연차 화면 -->
+<div id="annual-view" style="display:none">
+  <div class="subbar">
+    <div class="lv-title">연차 관리</div>
+    <div class="spacer"></div>
+    <button class="btn adm-only" id="annual-add-btn" style="display:none">+ 연차 사용 추가</button>
+  </div>
+  <div id="annual-body">
+    <div class="an-grant">
+      <span>연차 부여</span><b id="an-grant-view">—</b><span>일 (전체 공통)</span>
+      <span class="spacer"></span>
+      <span class="an-grant-editwrap adm-only" id="an-grant-editwrap" style="display:none">
+        <input id="an-grant-input" type="number" min="0" step="0.5" inputmode="decimal">
+        <button class="btn" id="an-grant-save">변경</button>
+      </span>
+    </div>
+    <div class="msg" id="annual-msg">불러오는 중…</div>
+    <div id="annual-summary"></div>
   </div>
 </div>
 
@@ -410,6 +439,23 @@
   <div class="row2">
     <button class="btn2 ghost" id="lv-cancel">취소</button>
     <button class="btn2 pri" id="lv-save">저장</button>
+  </div>
+</div>
+
+<!-- 연차 사용 추가 -->
+<div class="sheet" id="annual-sheet">
+  <h3>연차 사용 추가</h3>
+  <label class="lbl">직원</label>
+  <select id="an-emp"></select>
+  <label class="lbl">일자</label>
+  <input id="an-date" type="date">
+  <label class="lbl">일수</label>
+  <input id="an-days" type="number" min="0.5" step="0.5" value="1" inputmode="decimal">
+  <label class="lbl">사유 (선택)</label>
+  <input id="an-reason" type="text" placeholder="예) 개인 연차">
+  <div class="row2">
+    <button class="btn2 ghost" id="an-cancel">취소</button>
+    <button class="btn2 pri" id="an-save">저장</button>
   </div>
 </div>
 
@@ -538,6 +584,9 @@ const state = {
   workCfg: { start: "07:30", end: "17:00", breakMin: 100 },   // 근무시간 세팅(app_settings 폴백 기본값)
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
+  annual: [],        // 연차 사용 기록(annual_leave_ledger) 전체 행
+  annualDays: 15,    // 연차 부여(전체 공통, app_settings.annual_leave_days 폴백)
+  annualExpanded: new Set(),  // 연차 펼친 직원 id
 };
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1136,7 +1185,7 @@ async function doLogin() {
     pinEl.value = "";
     closeSheets();
     updateAuthUI();
-    if (state.tab === "leave") renderLeave(); else render();
+    if (state.tab === "leave") renderLeave(); else if (state.tab === "annual") renderAnnual(); else render();
   } catch (e) {
     errEl.textContent = "확인 실패: " + (e.message || e);
     errEl.style.display = "";
@@ -1150,7 +1199,7 @@ function doLogout() {
   localStorage.removeItem("sched_admin_keep");
   hideBulk();   // 드래그 일괄바 열려있으면 정리
   updateAuthUI();
-  if (state.tab === "leave") renderLeave(); else render();
+  if (state.tab === "leave") renderLeave(); else if (state.tab === "annual") renderAnnual(); else render();
 }
 
 function updateAuthUI() {
@@ -1316,10 +1365,13 @@ function setTab(tab) {
   state.tab = tab;
   document.getElementById("schedule-view").style.display = tab === "schedule" ? "" : "none";
   document.getElementById("leave-view").style.display = tab === "leave" ? "" : "none";
+  document.getElementById("annual-view").style.display = tab === "annual" ? "" : "none";
   document.getElementById("tab-sched").classList.toggle("active", tab === "schedule");
   document.getElementById("tab-leave").classList.toggle("active", tab === "leave");
+  document.getElementById("tab-annual").classList.toggle("active", tab === "annual");
   if (tab === "leave") loadAndRenderLeave();
-  else renderLeaveBar();   // 대체휴무 탭에서 편집 후 돌아오면 최신 잔여 반영(state.ledger 최신 유지)
+  else if (tab === "annual") loadAndRenderAnnual();
+  else renderLeaveBar();   // 스케줄로 돌아오면 최신 잔여 반영(state.ledger 최신 유지)
 }
 
 /* ── 대체휴무 장부 ── */
@@ -1449,6 +1501,130 @@ async function deleteLeave(id) {
   } catch (e) { alert("삭제 실패: " + (e.message || e)); }
 }
 
+/* ── 연차 관리 (대체휴무 패턴 미러 / fmtDays 재사용) ── */
+async function loadAnnual() {
+  const [led, cfg] = await Promise.all([
+    sb.from("annual_leave_ledger").select("*").order("date", { ascending: false }).order("id", { ascending: false }),
+    sb.from("app_settings").select("value").eq("key", "annual_leave_days").maybeSingle(),
+  ]);
+  if (led.error) throw led.error;
+  state.annual = led.data || [];
+  if (!cfg.error && cfg.data && cfg.data.value != null) state.annualDays = Number(cfg.data.value) || 0;
+}
+async function loadAndRenderAnnual() {
+  const msg = document.getElementById("annual-msg");
+  msg.className = "msg"; msg.textContent = "불러오는 중…"; msg.style.display = "";
+  try {
+    if (!state.allEmployees.length) await loadAllEmployees();
+    await loadAnnual();
+    msg.style.display = "none";
+    renderAnnual();
+  } catch (e) {
+    msg.className = "msg err"; msg.textContent = "불러오기 실패: " + (e.message || e); msg.style.display = "";
+    console.error(e);
+  }
+}
+function annualTotals() {   // {eid: 사용합}
+  const t = {};
+  for (const r of state.annual) t[r.employee_id] = (t[r.employee_id] || 0) + (Number(r.days) || 0);
+  return t;
+}
+function annualLine(r) {
+  const meta = (r.reason ? esc(r.reason) : "연차 사용") + (r.source && r.source !== "manual" ? ` · ${esc(r.source)}` : "");
+  const del = state.isAdmin ? `<button class="lv-del" data-id="${r.id}">삭제</button>` : "";
+  return `<div class="lv-line">
+    <span class="lb use">사용</span>
+    <div class="lv-meta"><div class="lv-cat">${meta}</div><div class="lv-date">${r.date}</div></div>
+    <div class="lv-days use">−${fmtDays(r.days)}</div>
+    ${del}
+  </div>`;
+}
+function renderAnnual() {
+  document.getElementById("an-grant-view").textContent = fmtDays(state.annualDays);
+  document.getElementById("an-grant-input").value = state.annualDays;
+  const totals = annualTotals();
+  const emps = state.employees;   // 재직, display_order
+  let html = `<div class="lv-hd"><div class="lv-nm">직원</div><div class="lv-c">부여</div><div class="lv-c">사용</div><div class="lv-c">잔여</div></div>`;
+  for (const e of emps) {
+    const used = totals[e.id] || 0;
+    const bal = state.annualDays - used;
+    const open = state.annualExpanded.has(String(e.id));
+    html += `<div class="lv-row" data-eid="${e.id}">
+      <div class="lv-nm">${open ? "▾" : "▸"} ${esc(e.name)}</div>
+      <div class="lv-c grant">${fmtDays(state.annualDays)}</div>
+      <div class="lv-c use">${fmtDays(used)}</div>
+      <div class="lv-c bal ${bal < 0 ? "neg" : ""}">${fmtDays(bal)}</div>
+    </div>`;
+    if (open) {
+      const rows = state.annual.filter(r => String(r.employee_id) === String(e.id));
+      html += `<div class="lv-detail">` +
+        (rows.length ? rows.map(annualLine).join("") : `<div class="lv-empty">내역 없음</div>`) +
+        `</div>`;
+    }
+  }
+  document.getElementById("annual-summary").innerHTML = html;
+}
+/* 연차 사용 입력 시트 */
+function openAnnualSheet() {
+  document.getElementById("an-emp").innerHTML =
+    state.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("");
+  document.getElementById("an-date").value = dateStr(today.y, today.m, today.d);
+  document.getElementById("an-days").value = "1";
+  document.getElementById("an-reason").value = "";
+  openSheetEl("annual-sheet");
+}
+async function saveAnnual() {
+  const eid = document.getElementById("an-emp").value;
+  const date = document.getElementById("an-date").value;
+  const days = parseFloat(document.getElementById("an-days").value);
+  const reason = document.getElementById("an-reason").value.trim();
+  if (!eid) { alert("직원을 선택하세요."); return; }
+  if (!date) { alert("일자를 입력하세요."); return; }
+  if (!(days > 0)) { alert("일수는 0보다 커야 합니다."); return; }
+  const btn = document.getElementById("an-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const { error } = await sb.from("annual_leave_ledger").insert({
+      employee_id: eid, date, days, reason: reason || null, source: "manual",
+    });
+    if (error) throw error;
+    closeSheets();
+    await loadAnnual();
+    state.annualExpanded.add(String(eid));   // 방금 입력한 사람 펼쳐 확인
+    renderAnnual();
+  } catch (e) {
+    alert("저장 실패: " + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
+}
+async function deleteAnnual(id) {
+  if (!confirm("이 연차 기록을 삭제할까요?")) return;
+  try {
+    const { error } = await sb.from("annual_leave_ledger").delete().eq("id", id);
+    if (error) throw error;
+    await loadAnnual();
+    renderAnnual();
+  } catch (e) { alert("삭제 실패: " + (e.message || e)); }
+}
+async function saveAnnualDays() {
+  const v = parseFloat(document.getElementById("an-grant-input").value);
+  if (!(v >= 0)) { alert("부여 일수를 확인하세요."); return; }
+  const btn = document.getElementById("an-grant-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const { error } = await sb.from("app_settings")
+      .upsert({ key: "annual_leave_days", value: String(v) }, { onConflict: "key" });
+    if (error) throw error;
+    state.annualDays = v;
+    renderAnnual();
+  } catch (e) {
+    alert("부여 저장 실패: " + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "변경";
+  }
+}
+
 /* ── 이벤트 ── */
 document.getElementById("prev").onclick = () => step(-1);
 document.getElementById("next").onclick = () => step(1);
@@ -1497,6 +1673,7 @@ document.getElementById("pat-list").addEventListener("click", (e) => {
 // 탭 전환
 document.getElementById("tab-sched").onclick = () => setTab("schedule");
 document.getElementById("tab-leave").onclick = () => setTab("leave");
+document.getElementById("tab-annual").onclick = () => setTab("annual");
 
 // 대체휴무
 document.getElementById("leave-add-btn").onclick = openLeaveSheet;
@@ -1513,6 +1690,22 @@ document.getElementById("leave-summary").addEventListener("click", (e) => {
   if (state.leaveExpanded.has(eid)) state.leaveExpanded.delete(eid);
   else state.leaveExpanded.add(eid);
   renderLeave();
+});
+
+// 연차
+document.getElementById("annual-add-btn").onclick = openAnnualSheet;
+document.getElementById("an-cancel").onclick = closeSheets;
+document.getElementById("an-save").onclick = saveAnnual;
+document.getElementById("an-grant-save").onclick = saveAnnualDays;
+document.getElementById("annual-summary").addEventListener("click", (e) => {
+  const del = e.target.closest(".lv-del");
+  if (del) { deleteAnnual(del.dataset.id); return; }
+  const row = e.target.closest(".lv-row");
+  if (!row) return;
+  const eid = row.dataset.eid;
+  if (state.annualExpanded.has(eid)) state.annualExpanded.delete(eid);
+  else state.annualExpanded.add(eid);
+  renderAnnual();
 });
 
 document.getElementById("grid").addEventListener("click", (e) => {
