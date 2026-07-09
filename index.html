@@ -68,6 +68,19 @@
   .lchip.neg{color:#dc2626; border-color:#fecaca}
   .lchip.neg b{color:#dc2626}
 
+  /* 월 근무 집계(관리자 전용) */
+  .work-summary{max-width:640px; margin:14px auto 26px; padding:0 12px}
+  .work-summary .ws-title{font-size:13px; font-weight:700; color:var(--ink); margin:4px 2px 8px}
+  .work-summary .ws-sub{font-size:11px; font-weight:400; color:var(--sub); margin-left:4px}
+  .ws-hd, .ws-row{display:grid; grid-template-columns:1fr 60px 120px; align-items:center; padding:7px 8px}
+  .ws-hd{font-size:12px; color:var(--sub); border-bottom:2px solid var(--border)}
+  .ws-row{border-bottom:1px solid var(--line); font-size:14px}
+  .ws-nm{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .ws-d, .ws-h{text-align:right; font-variant-numeric:tabular-nums}
+  .ws-h{font-weight:700}
+  /* 세팅 시트 실근무 표시 */
+  .wk-calc{margin-top:14px; padding:11px; border:1px solid var(--border); border-radius:9px; background:#f8fafc; font-size:15px; font-weight:700; text-align:center; color:var(--ink)}
+
   /* 그리드 */
   .scroll{overflow:auto; -webkit-overflow-scrolling:touch; max-height:calc(100vh - 150px)}
   table{border-collapse:separate; border-spacing:0; width:max-content; margin:0 auto}  /* 좁으면 중앙, 넓으면 스크롤 */
@@ -273,6 +286,7 @@
     </div>
     <button class="btn" id="today-btn">오늘</button>
     <button class="btn adm-only" id="range-btn" style="display:none">기간</button>
+    <button class="btn adm-only" id="work-btn" style="display:none">근무시간</button>
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
     <span class="hol-count" id="hol-count"></span>
@@ -290,6 +304,8 @@
     <div class="msg" id="grid-msg">불러오는 중…</div>
     <div id="grid"></div>
   </div>
+
+  <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
 </div>
 
 <!-- 대체휴무 화면 -->
@@ -400,6 +416,23 @@
   </div>
 </div>
 
+<!-- 근무시간 설정 (관리자) -->
+<div class="sheet" id="work-sheet">
+  <h3>근무시간 설정</h3>
+  <div class="row2" style="margin-top:4px">
+    <div style="flex:1"><label class="lbl">출근</label><input id="wk-start" type="time" step="60"></div>
+    <div style="flex:1"><label class="lbl">퇴근</label><input id="wk-end" type="time" step="60"></div>
+  </div>
+  <label class="lbl">휴게 (분)</label>
+  <input id="wk-break" type="number" min="0" step="10" inputmode="numeric">
+  <div class="wk-calc" id="wk-calc">실근무 —</div>
+  <div class="hint err" id="wk-err" style="display:none"></div>
+  <div class="row2">
+    <button class="btn2 ghost" id="wk-cancel">취소</button>
+    <button class="btn2 pri" id="wk-save">저장</button>
+  </div>
+</div>
+
 <!-- 직원 관리 모달 -->
 <div class="modal" id="emp-modal">
   <div class="modal-hd"><h3>직원 관리</h3><button class="x" id="emp-close">✕</button></div>
@@ -466,6 +499,7 @@ const state = {
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
   holidays: {},   // "YYYY-MM-DD" -> 공휴일 이름 (헤더 표시 전용, 자동 휴무 아님)
+  workCfg: { start: "07:30", end: "17:00", breakMin: 100 },   // 근무시간 세팅(app_settings 폴백 기본값)
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
 };
@@ -529,6 +563,7 @@ function render() {
     msg.textContent = "재직 중인 직원이 없습니다.";
     msg.style.display = "";
     renderLeaveBar();
+    renderWorkSummary();
     return;
   }
   document.getElementById("grid-msg").style.display = "none";
@@ -582,6 +617,7 @@ function render() {
     `<table><thead>${thead}</thead><tbody>${tbody}</tbody><tfoot>${workRow}${offRow}</tfoot></table>`;
 
   renderLeaveBar();
+  renderWorkSummary();
 }
 
 /* ── 스케줄 상단: 직원별 대체휴무 잔여 요약 바 (대체휴무 탭 계산 로직 재사용) ── */
@@ -599,6 +635,106 @@ function renderLeaveBar() {
   }).join("");
   bar.innerHTML = `<span class="lbar-title">대체휴무 잔여</span>${chips}`;
   bar.style.display = "flex";
+}
+
+/* ── 근무시간(app_settings) ── */
+const parseHM = s => { const [h, mm] = String(s || "").split(":").map(Number); return (h || 0) * 60 + (mm || 0); };
+// 1일 실근무 = (퇴근 − 출근) − 휴게, 분 단위. 음수/이상값은 0.
+function workMinutes(cfg) {
+  cfg = cfg || state.workCfg;
+  const mins = parseHM(cfg.end) - parseHM(cfg.start) - (Number(cfg.breakMin) || 0);
+  return mins > 0 ? mins : 0;
+}
+// 분 → "7시간 50분"
+function fmtHM(mins) {
+  mins = Math.max(0, Math.round(mins));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h && m) return `${h}시간 ${m}분`;
+  if (h) return `${h}시간`;
+  return `${m}분`;
+}
+// 그 달 근무일수(= '휴무' 아닌 날 수) — 기존 cellStatus 판정 재사용
+function workDaysOf(emp, y, m) {
+  let n = 0, dim = daysInMonth(y, m);
+  for (let d = 1; d <= dim; d++) if (cellStatus(emp, y, m, d).status !== "off") n++;
+  return n;
+}
+async function loadWorkCfg() {
+  const cfg = { start: "07:30", end: "17:00", breakMin: 100 };   // 폴백 기본값
+  try {
+    const { data, error } = await sb.from("app_settings").select("key,value")
+      .in("key", ["work_start", "work_end", "break_minutes"]);
+    if (error) throw error;
+    (data || []).forEach(r => {
+      if (r.key === "work_start" && r.value) cfg.start = r.value;
+      else if (r.key === "work_end" && r.value) cfg.end = r.value;
+      else if (r.key === "break_minutes" && r.value != null) cfg.breakMin = Number(r.value) || 0;
+    });
+  } catch (e) { console.warn("[workcfg] 로드 실패(기본값 사용):", e.message || e); }
+  state.workCfg = cfg;
+}
+// 직원별 월 근무일수 × 1일 실근무 = 월 근무시간 (관리자 전용)
+function renderWorkSummary() {
+  const el = document.getElementById("work-summary");
+  if (!el) return;
+  const emps = state.employees;
+  if (!state.isAdmin || !emps.length) { el.innerHTML = ""; return; }
+  const wmin = workMinutes();
+  const cfg = state.workCfg;
+  const sub = `1일 실근무 ${fmtHM(wmin)} · ${cfg.start}~${cfg.end}, 휴게 ${Number(cfg.breakMin) || 0}분 기준`;
+  const rows = emps.map(e => {
+    const days = workDaysOf(e, state.y, state.m);
+    return `<div class="ws-row"><div class="ws-nm">${esc(e.name)}</div><div class="ws-d">${days}일</div><div class="ws-h">${fmtHM(days * wmin)}</div></div>`;
+  }).join("");
+  el.innerHTML = `<div class="ws-title">${state.m}월 근무 집계 <span class="ws-sub">${sub}</span></div>`
+    + `<div class="ws-hd"><div class="ws-nm">직원</div><div class="ws-d">근무일</div><div class="ws-h">근무시간</div></div>${rows}`;
+}
+
+/* 근무시간 설정 시트(관리자) */
+function openWorkSheet() {
+  document.getElementById("wk-start").value = state.workCfg.start;
+  document.getElementById("wk-end").value = state.workCfg.end;
+  document.getElementById("wk-break").value = Number(state.workCfg.breakMin) || 0;
+  document.getElementById("wk-err").style.display = "none";
+  updateWorkCalc();
+  openSheetEl("work-sheet");
+}
+function readWorkInputs() {
+  return {
+    start: document.getElementById("wk-start").value,
+    end: document.getElementById("wk-end").value,
+    breakMin: Number(document.getElementById("wk-break").value) || 0,
+  };
+}
+function updateWorkCalc() {
+  const mins = workMinutes(readWorkInputs());
+  document.getElementById("wk-calc").textContent = mins > 0 ? `실근무 ${fmtHM(mins)}` : "실근무 — (시간 확인)";
+}
+async function saveWorkCfg() {
+  const cfg = readWorkInputs();
+  const err = document.getElementById("wk-err");
+  const setErr = msg => { err.textContent = msg; err.style.display = ""; };
+  if (!cfg.start || !cfg.end) return setErr("출근·퇴근 시간을 입력하세요.");
+  if (workMinutes(cfg) <= 0) return setErr("실근무시간이 0 이하입니다. 시간·휴게를 확인하세요.");
+  const btn = document.getElementById("wk-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const rows = [
+      { key: "work_start", value: cfg.start },
+      { key: "work_end", value: cfg.end },
+      { key: "break_minutes", value: String(cfg.breakMin) },
+    ];
+    const { error } = await sb.from("app_settings").upsert(rows, { onConflict: "key" });
+    if (error) throw error;
+    state.workCfg = cfg;
+    closeSheets();
+    renderWorkSummary();
+  } catch (e) {
+    setErr("저장 실패: " + (e.message || e));
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
 }
 
 /* ── 공휴일 자동 갱신(연 1회): 그 해가 DB에 없으면 외부 JSON에서 가져와 upsert ── */
@@ -1332,12 +1468,20 @@ document.getElementById("rg-off").onclick = () => setRangeSeg("off");
 document.getElementById("rg-cancel").onclick = closeSheets;
 document.getElementById("rg-apply").onclick = applyRange;
 
+// 근무시간 설정
+document.getElementById("work-btn").onclick = openWorkSheet;
+document.getElementById("wk-cancel").onclick = closeSheets;
+document.getElementById("wk-save").onclick = saveWorkCfg;
+["wk-start", "wk-end", "wk-break"].forEach(id =>
+  document.getElementById(id).addEventListener("input", updateWorkCalc));
+
 /* ── 시작 ── */
 (async function init() {
   // PIN 로그인 복원: 유지(localStorage) 또는 이번 세션(sessionStorage)
   state.isAdmin = localStorage.getItem("sched_admin_keep") === "1"
     || sessionStorage.getItem("sched_admin") === "1";
   updateAuthUI();
+  await loadWorkCfg();               // 근무시간 세팅(집계용, 기본값 폴백)
   await goMonth(state.y, state.m);   // 데이터 로드 + 첫 렌더
 })();
 </script>
