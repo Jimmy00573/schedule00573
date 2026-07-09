@@ -242,6 +242,17 @@
   .seg button.sel[data-v="grant"]{background:var(--work-bg); border-color:var(--work); color:#166534}
   .seg button.sel[data-v="use"]{background:#fee2e2; border-color:#f87171; color:#b91c1c}
 
+  /* 기간 일괄 입력 — 직원 다중 선택 */
+  .rg-emp-hd{display:flex; align-items:center; justify-content:space-between}
+  .rg-all{border:1px solid var(--border); background:#fff; color:var(--sub); font-family:inherit;
+    font-size:12px; padding:4px 10px; border-radius:8px; cursor:pointer; margin-top:8px}
+  #rg-emp{display:flex; flex-wrap:wrap; gap:6px; max-height:200px; overflow-y:auto;
+    border:1px solid var(--border); border-radius:9px; padding:8px; margin-top:4px}
+  #rg-emp label{display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--ink);
+    border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap}
+  #rg-emp label:has(input:checked){background:var(--work-bg); border-color:var(--work); color:#166534}
+  #rg-emp input{width:16px; height:16px}
+
   /* 대체휴무 장부 */
   #leave-body{max-width:640px; margin:0 auto; padding:12px}
   .lv-hd, .lv-row{display:grid; grid-template-columns:1fr 58px 58px 64px; align-items:center}
@@ -397,9 +408,12 @@
 <!-- 기간 지정 일괄 입력 (관리자) -->
 <div class="sheet" id="range-sheet">
   <h3>기간 일괄 입력</h3>
-  <label class="lbl">직원</label>
-  <select id="rg-emp"></select>
-  <div class="seg" style="margin-top:6px">
+  <div class="rg-emp-hd">
+    <label class="lbl" style="margin:10px 0 0">직원 (여러 명 선택 가능)</label>
+    <button type="button" id="rg-all" class="rg-all">전원 선택</button>
+  </div>
+  <div id="rg-emp"></div>
+  <div class="seg" style="margin-top:10px">
     <button id="rg-work" data-v="work">근무</button>
     <button id="rg-off" data-v="off">휴무</button>
   </div>
@@ -972,9 +986,10 @@ function openHeaderBulk(ds) {
 /* ── 기간 지정 일괄 입력(관리자): 직원(또는 전원) × 시작~종료일 → commitOverride 재사용 ── */
 let rangeDir = "work";   // 근무/휴무 선택
 function openRangeSheet() {
-  const sel = document.getElementById("rg-emp");
-  sel.innerHTML = `<option value="">전원</option>` +
-    state.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("");
+  const box = document.getElementById("rg-emp");
+  box.innerHTML = state.employees.map(e =>
+    `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
+  updateRgAllLabel();
   setRangeSeg("work");
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
@@ -991,18 +1006,32 @@ function setRangeSeg(v) {
   document.getElementById("rg-work").classList.toggle("sel", v === "work");
   document.getElementById("rg-off").classList.toggle("sel", v === "off");
 }
+// 전원 선택/해제 토글 버튼 라벨 갱신(전부 체크면 '전원 해제')
+function updateRgAllLabel() {
+  const boxes = document.querySelectorAll('#rg-emp input[type="checkbox"]');
+  const allChecked = boxes.length > 0 && Array.from(boxes).every(cb => cb.checked);
+  document.getElementById("rg-all").textContent = allChecked ? "전원 해제" : "전원 선택";
+}
+function toggleRgAll() {
+  const boxes = document.querySelectorAll('#rg-emp input[type="checkbox"]');
+  const allChecked = boxes.length > 0 && Array.from(boxes).every(cb => cb.checked);
+  boxes.forEach(cb => { cb.checked = !allChecked; });
+  updateRgAllLabel();
+}
 async function applyRange() {
-  const eidSel = document.getElementById("rg-emp").value;   // "" = 전원
+  const eids = Array.from(document.querySelectorAll('#rg-emp input[type="checkbox"]:checked'))
+    .map(cb => cb.dataset.eid);
   const startS = document.getElementById("rg-start").value;
   const endS   = document.getElementById("rg-end").value;
   const hint = document.getElementById("rg-hint");
   const setErr = msg => { hint.textContent = msg; hint.classList.add("err"); };
+  if (!eids.length)     return setErr("직원을 선택하세요.");
   if (!startS || !endS) return setErr("시작일·종료일을 입력하세요.");
   if (startS > endS)    return setErr("시작일이 종료일보다 늦습니다.");
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
   if (startS < first || endS > last) return setErr(`${state.y}년 ${state.m}월 내에서만 지정할 수 있습니다.`);
-  const emps = eidSel ? state.employees.filter(e => String(e.id) === String(eidSel)) : state.employees;
+  const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
   // 현재 달 범위이므로 일(day) 단위 순회
   const sd = Number(startS.slice(8, 10)), ed = Number(endS.slice(8, 10));
@@ -1481,6 +1510,8 @@ document.getElementById("bulk-cancel").onclick = hideBulk;
 
 // 기간 지정 일괄 입력
 document.getElementById("range-btn").onclick = openRangeSheet;
+document.getElementById("rg-all").onclick = toggleRgAll;
+document.getElementById("rg-emp").addEventListener("change", updateRgAllLabel);   // 개별 체크 시 전원 버튼 라벨 갱신
 document.getElementById("rg-work").onclick = () => setRangeSeg("work");
 document.getElementById("rg-off").onclick = () => setRangeSeg("off");
 document.getElementById("rg-cancel").onclick = closeSheets;
