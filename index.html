@@ -267,6 +267,7 @@
     border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap}
   #rg-emp label:has(input:checked){background:var(--work-bg); border-color:var(--work); color:#166534}
   #rg-emp input{width:16px; height:16px}
+  #rg-type{width:100%}
   #rg-reasons{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 6px}
   .rg-rsn{border:1px solid var(--border); background:#fff; color:var(--ink); font-family:inherit;
     font-size:13px; padding:6px 11px; border-radius:999px; cursor:pointer}
@@ -488,10 +489,15 @@
     <button type="button" id="rg-all" class="rg-all">전원 선택</button>
   </div>
   <div id="rg-emp"></div>
-  <div class="seg" style="margin-top:10px">
-    <button id="rg-work" data-v="work">근무</button>
-    <button id="rg-off" data-v="off">휴무</button>
-  </div>
+  <label class="lbl">유형</label>
+  <select id="rg-type">
+    <option value="work">근무</option>
+    <option value="off">휴무</option>
+    <option value="annual">연차</option>
+    <option value="leave_use">대체휴무</option>
+    <option value="leave_grant">대체근무</option>
+    <option value="etc">경조사및기타</option>
+  </select>
   <div class="row2" style="margin-top:12px">
     <div style="flex:1">
       <label class="lbl">시작일</label>
@@ -1109,8 +1115,16 @@ function openHeaderBulk(ds) {
   showBulk(targets, `${m}월 ${d}일 전원`);
 }
 
-/* ── 기간 지정 일괄 입력(관리자): 직원(또는 전원) × 시작~종료일 → commitOverride 재사용 ── */
-let rangeDir = "work";   // 근무/휴무 선택
+/* ── 기간 지정 일괄 입력(관리자): 직원 다중 × 시작~종료일 → 유형별 스케줄 override + 장부 자동 기록 ── */
+// 유형: status=스케줄 근무/휴무, ledger=자동 기록 대상('none'이면 장부 없음)
+const RANGE_TYPES = {
+  work:        { label: "근무",        status: "work", ledger: "none" },
+  off:         { label: "휴무",        status: "off",  ledger: "none" },
+  annual:      { label: "연차",        status: "off",  ledger: "annual" },
+  leave_use:   { label: "대체휴무",    status: "off",  ledger: "leave_use" },
+  leave_grant: { label: "대체근무",    status: "work", ledger: "leave_grant" },
+  etc:         { label: "경조사및기타", status: "off",  ledger: "etc" },
+};
 function openRangeSheet() {
   const box = document.getElementById("rg-emp");
   box.innerHTML = state.employees.map(e =>
@@ -1118,7 +1132,7 @@ function openRangeSheet() {
   updateRgAllLabel();
   document.getElementById("rg-reason").value = "";
   document.querySelectorAll(".rg-rsn").forEach(b => b.classList.remove("sel"));
-  setRangeSeg("work");
+  document.getElementById("rg-type").value = "off";
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
   const s = document.getElementById("rg-start"), en = document.getElementById("rg-end");
@@ -1129,10 +1143,19 @@ function openRangeSheet() {
   hint.textContent = `${state.y}년 ${state.m}월 내에서 지정하세요.`;
   openSheetEl("range-sheet");
 }
-function setRangeSeg(v) {
-  rangeDir = v;
-  document.getElementById("rg-work").classList.toggle("sel", v === "work");
-  document.getElementById("rg-off").classList.toggle("sel", v === "off");
+// 장부 중복 방지 후 일괄 insert: 같은 employee_id+date(+extraEq)가 이미 있으면 건너뜀
+async function ledgerInsertDedup(table, empIds, dates, extraEq, buildRow) {
+  let q = sb.from(table).select("employee_id,date").in("employee_id", empIds).in("date", dates);
+  for (const [k, v] of Object.entries(extraEq || {})) q = q.eq(k, v);
+  const { data: existing, error } = await q;
+  if (error) throw error;
+  const skip = new Set((existing || []).map(r => r.employee_id + "|" + r.date));
+  const rows = [];
+  for (const eid of empIds) for (const d of dates) if (!skip.has(eid + "|" + d)) rows.push(buildRow(eid, d));
+  if (rows.length) {
+    const { error: insErr } = await sb.from(table).insert(rows);
+    if (insErr) throw insErr;
+  }
 }
 // 사유 빠른 버튼 → 입력칸 채우고 그 칩만 강조
 function setRgReason(v) {
@@ -1166,19 +1189,42 @@ async function applyRange() {
   if (startS < first || endS > last) return setErr(`${state.y}년 ${state.m}월 내에서만 지정할 수 있습니다.`);
   const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
-  const reason = document.getElementById("rg-reason").value.trim();   // 사유 → override memo
+  const reason = document.getElementById("rg-reason").value.trim();
+  const type = document.getElementById("rg-type").value;
+  const def = RANGE_TYPES[type] || RANGE_TYPES.off;
+  // 스케줄 memo: 근무/휴무는 사유만(빈값 허용), 특수 유형은 사유 없으면 유형명
+  const memoBase = (type === "work" || type === "off") ? reason : (reason || def.label);
   // 현재 달 범위이므로 일(day) 단위 순회
   const sd = Number(startS.slice(8, 10)), ed = Number(endS.slice(8, 10));
+  const dates = [];
+  for (let d = sd; d <= ed; d++) dates.push(dateStr(state.y, state.m, d));
+  const empIds = emps.map(e => String(e.id));
   const targets = [];
-  emps.forEach(e => { for (let d = sd; d <= ed; d++) targets.push({ eid: e.id, date: dateStr(state.y, state.m, d) }); });
+  empIds.forEach(eid => dates.forEach(dt => targets.push({ eid, date: dt })));
   const btn = document.getElementById("rg-apply");
   btn.disabled = true; btn.textContent = "적용 중…";
   try {
+    // 1) 스케줄 override (기존 로직) — 유형의 근무/휴무 status로
     await Promise.all(targets.map(t => {
       const ov = state.overrides[t.eid + "|" + t.date];
-      const memo = reason || (ov ? ov.memo : "");   // 사유 입력 시 그 값, 없으면 기존 메모 유지
-      return commitOverride(t.eid, t.date, rangeDir, memo);   // 패턴과 같고 메모 없으면 자동 삭제
+      const memo = memoBase || (ov ? ov.memo : "");
+      return commitOverride(t.eid, t.date, def.status, memo);
     }));
+    // 2) 유형별 장부 자동 기록 (중복 방지). ★취소·수정 동기화는 다음 단계(2단계-B) — 지금은 입력 시 기록만.
+    if (def.ledger === "annual")
+      await ledgerInsertDedup("annual_leave_ledger", empIds, dates, {},
+        (eid, dt) => ({ employee_id: eid, date: dt, days: 1, reason: reason || null, source: "schedule" }));
+    else if (def.ledger === "leave_use")
+      await ledgerInsertDedup("leave_ledger", empIds, dates, { direction: "use", category: "대체휴무" },
+        (eid, dt) => ({ employee_id: eid, date: dt, direction: "use", category: "대체휴무", days: 1, reason: reason || null }));
+    else if (def.ledger === "leave_grant")
+      await ledgerInsertDedup("leave_ledger", empIds, dates, { direction: "grant", category: "대체근무" },
+        (eid, dt) => ({ employee_id: eid, date: dt, direction: "grant", category: "대체근무", days: 1, reason: reason || null }));
+    else if (def.ledger === "etc")
+      await ledgerInsertDedup("etc_leave_ledger", empIds, dates, {},
+        (eid, dt) => ({ employee_id: eid, date: dt, category: "경조사및기타", reason: reason || null, source: "schedule" }));
+    // 대체휴무 잔여 바가 최신 반영되도록 장부 재로드(연차 탭은 열 때 재로드)
+    if (def.ledger === "leave_use" || def.ledger === "leave_grant") await loadLeave();
     closeSheets();
     render();
   } catch (e) {
@@ -1855,8 +1901,6 @@ document.getElementById("rg-reason").addEventListener("input", (e) => {   // 직
   const v = e.target.value.trim();
   document.querySelectorAll(".rg-rsn").forEach(b => b.classList.toggle("sel", b.dataset.r === v));
 });
-document.getElementById("rg-work").onclick = () => setRangeSeg("work");
-document.getElementById("rg-off").onclick = () => setRangeSeg("off");
 document.getElementById("rg-cancel").onclick = closeSheets;
 document.getElementById("rg-apply").onclick = applyRange;
 
