@@ -83,6 +83,8 @@
   thead th .dwd{font-size:10px; line-height:1.1; color:var(--sub)}
   thead th.sat .dwd{color:var(--sat)} thead th.sat .dnum{color:var(--sat)}
   thead th.sun .dwd{color:var(--sun)} thead th.sun .dnum{color:var(--sun)}
+  thead th.hol .dwd{color:var(--sun)} thead th.hol .dnum{color:var(--sun)}   /* 공휴일=일요일 톤 빨강(토/일보다 우선) */
+  thead th .dhol{font-size:9px; line-height:1.1; color:var(--sun); font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}
   thead th.today{background:#f3f4f6; box-shadow:inset 0 -2px 0 #cbd5e1}
   thead th.today .dnum{font-weight:700}
 
@@ -432,6 +434,7 @@ const state = {
   employees: [],     // 재직만 — 그리드용
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
+  holidays: {},   // "YYYY-MM-DD" -> 공휴일 이름 (헤더 표시 전용, 자동 휴무 아님)
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
 };
@@ -443,10 +446,11 @@ async function loadMonth(y, m) {
   const ym = ymStr(y,m);
   const first = dateStr(y,m,1);
   const last  = dateStr(y,m,daysInMonth(y,m));
-  const [emp, pat, ovr] = await Promise.all([
+  const [emp, pat, ovr, hol] = await Promise.all([
     sb.from("employees").select("*").order("display_order"),
     sb.from("monthly_patterns").select("*").eq("month", ym),
     sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
+    sb.from("holidays").select("date,name").gte("date", first).lte("date", last),
   ]);
   if (emp.error) throw emp.error;
   if (pat.error) throw pat.error;
@@ -458,6 +462,9 @@ async function loadMonth(y, m) {
   (pat.data || []).forEach(p => { state.patterns[p.employee_id] = p; });
   state.overrides = {};
   (ovr.data || []).forEach(o => { state.overrides[o.employee_id + "|" + o.date] = o; });
+  state.holidays = {};   // 공휴일 조회 실패는 무시(표시만 없음, 스케줄은 정상 동작)
+  if (hol.error) console.warn("[holidays] 조회 실패(무시):", hol.error.message);
+  else (hol.data || []).forEach(h => { state.holidays[h.date] = h.name; });
 }
 
 /* ── 셀 상태 계산 ──
@@ -499,8 +506,12 @@ function render() {
   let thead = `<tr><th class="corner">직원</th>`;
   for (let d=1; d<=dim; d++){
     const wd = weekday(y,m,d);
-    const cls = (wd===0?"sun":wd===6?"sat":"") + (isToday(y,m,d)?" today":"");
-    thead += `<th class="${cls}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div></th>`;
+    const holName = state.holidays[dateStr(y,m,d)];
+    let cls = (wd===0?"sun":wd===6?"sat":"");
+    if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
+    if (isToday(y,m,d)) cls += " today";
+    const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holName)}</div>` : "";
+    thead += `<th class="${cls.trim()}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
   }
   thead += `</tr>`;
 
@@ -558,6 +569,35 @@ function renderLeaveBar() {
   bar.style.display = "flex";
 }
 
+/* ── 공휴일 자동 갱신(연 1회): 그 해가 DB에 없으면 외부 JSON에서 가져와 upsert ── */
+const _holYears = new Set();   // 이번 세션에서 확인 완료한 연도(중복 fetch 방지)
+async function ensureHolidays(year) {
+  if (_holYears.has(year)) return;
+  _holYears.add(year);   // 실패해도 이번 세션엔 재시도 안 함(새로고침 시 재시도)
+  try {
+    const { count, error } = await sb.from("holidays")
+      .select("date", { count: "exact", head: true })
+      .gte("date", `${year}-01-01`).lte("date", `${year}-12-31`);
+    if (error) throw error;
+    if (count && count > 0) return;   // 이미 있으면 skip(연 1회만 가져옴)
+    const res = await fetch(`https://holidays.dist.be/${year}.json`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const list = await res.json();
+    const rows = (Array.isArray(list) ? list : [])
+      .filter(h => h && h.date && (h.kind === 1 || h.holiday === true))
+      .map(h => ({ date: h.date, name: h.name || "공휴일", is_custom: false }));
+    if (!rows.length) return;
+    // ignoreDuplicates: 기존 행(회사지정 is_custom=true 포함)은 덮지 않고 새 공식 공휴일만 삽입
+    const { error: upErr } = await sb.from("holidays")
+      .upsert(rows, { onConflict: "date", ignoreDuplicates: true });
+    if (upErr) throw upErr;
+    console.log(`[holidays] ${year} 공휴일 ${rows.length}건 자동 등록`);
+  } catch (e) {
+    console.warn(`[holidays] ${year} 자동 갱신 실패(무시):`, e.message || e);
+    // 실패해도 앱 정상 — 공휴일 표시만 없음
+  }
+}
+
 /* ── 월 이동 ── */
 async function goMonth(y, m) {
   state.y = y; state.m = m;
@@ -565,6 +605,7 @@ async function goMonth(y, m) {
   msg.textContent = "불러오는 중…"; msg.className = "msg"; msg.style.display = "";
   document.getElementById("grid").innerHTML = "";
   try {
+    await ensureHolidays(y);   // 그 해 공휴일 DB 보정(없으면 외부 fetch·upsert, 실패해도 무시)
     await Promise.all([loadMonth(y, m), loadLeave()]);   // 스케줄 + 대체휴무 잔여(요약 바용)
     render();
   } catch (e) {
