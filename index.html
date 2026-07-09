@@ -121,6 +121,10 @@
   td.cell.work{background:#fff}                 /* 근무=흰색(표시 안 함) */
   td.cell.unset{background:#fff}                /* 미설정=근무와 동일(흰색) */
   td.cell.off{background:#e7ebef}               /* 휴무만 옅은 회색 */
+  /* 연속 사유 휴무 띠(2일+): 옅은 파랑, 내부 세로 경계 제거 → 하나의 띠로 연결 */
+  td.cell.span{background:#eef2ff}
+  td.cell.span-start, td.cell.span-mid{border-right-color:transparent}
+  td.cell .span-label{font-size:9px; line-height:1.1; color:var(--memo); font-weight:700; display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}
   /* 예외(exc)·오늘열(tcol) 시각 강조 없음 — 근무 흰색/휴무 회색 결과만 표시 */
   td.cell.selecting{background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb}   /* 드래그 선택 */
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
@@ -252,6 +256,10 @@
     border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap}
   #rg-emp label:has(input:checked){background:var(--work-bg); border-color:var(--work); color:#166534}
   #rg-emp input{width:16px; height:16px}
+  #rg-reasons{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 6px}
+  .rg-rsn{border:1px solid var(--border); background:#fff; color:var(--ink); font-family:inherit;
+    font-size:13px; padding:6px 11px; border-radius:999px; cursor:pointer}
+  .rg-rsn.sel{background:#eef2ff; border-color:var(--memo); color:var(--memo)}
 
   /* 대체휴무 장부 */
   #leave-body{max-width:640px; margin:0 auto; padding:12px}
@@ -427,6 +435,16 @@
       <input id="rg-end" type="date">
     </div>
   </div>
+  <label class="lbl">사유 (선택)</label>
+  <div id="rg-reasons">
+    <button type="button" class="rg-rsn" data-r="휴가">휴가</button>
+    <button type="button" class="rg-rsn" data-r="출장">출장</button>
+    <button type="button" class="rg-rsn" data-r="병가">병가</button>
+    <button type="button" class="rg-rsn" data-r="경조사">경조사</button>
+    <button type="button" class="rg-rsn" data-r="예비군">예비군</button>
+    <button type="button" class="rg-rsn" data-r="개인">개인</button>
+  </div>
+  <input id="rg-reason" type="text" placeholder="직접 입력 가능">
   <div class="hint" id="rg-hint"></div>
   <div class="row2">
     <button class="btn2 ghost" id="rg-cancel">취소</button>
@@ -603,16 +621,38 @@ function render() {
   // 본문
   let tbody = "";
   for (const emp of state.employees){
+    // 그 달 셀 상태 미리 계산
+    const cells = [];
+    for (let d=1; d<=dim; d++) cells.push(cellStatus(emp,y,m,d));
+    // 연속 사유 휴무(off + 같은 memo, 2일 이상) → 띠(span) 정보 계산
+    const span = new Array(dim).fill(null);       // 'start'|'mid'|'end'
+    const labelAt = new Array(dim).fill(false);   // 띠 첫 칸(사유 라벨 위치)
+    for (let i=0; i<dim; ){
+      const cs = cells[i];
+      if (cs.status==="off" && cs.memo){
+        let j=i;
+        while (j+1<dim && cells[j+1].status==="off" && cells[j+1].memo===cs.memo) j++;
+        if (j-i+1 >= 2){
+          labelAt[i] = true;
+          for (let k=i; k<=j; k++) span[k] = k===i ? "start" : (k===j ? "end" : "mid");
+        }
+        i = j+1;
+      } else i++;
+    }
+    // 렌더
     let row = `<tr><td class="name">${esc(emp.name)}</td>`;
     for (let d=1; d<=dim; d++){
-      const cs = cellStatus(emp,y,m,d);
+      const cs = cells[d-1], sp = span[d-1];
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
       if (cs.isException) cls += " exc";
       if (isToday(y,m,d)) cls += " tcol";
+      if (sp) cls += " span span-" + sp;
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
-        + (cs.memo ? ` data-memo="${esc(cs.memo)}"` : "");
-      const dot = cs.memo ? `<span class="memo"></span>` : "";
-      row += `<td class="${cls}"${attrs}>${dot}</td>`;
+        + (cs.memo ? ` data-memo="${esc(cs.memo)}" title="${esc(cs.memo)}"` : "");
+      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움(연결) / 단일 memo: 점
+      const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
+        : sp ? "" : (cs.memo ? `<span class="memo"></span>` : "");
+      row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
     tbody += row + `</tr>`;
   }
@@ -990,6 +1030,8 @@ function openRangeSheet() {
   box.innerHTML = state.employees.map(e =>
     `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
   updateRgAllLabel();
+  document.getElementById("rg-reason").value = "";
+  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.remove("sel"));
   setRangeSeg("work");
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
@@ -1005,6 +1047,11 @@ function setRangeSeg(v) {
   rangeDir = v;
   document.getElementById("rg-work").classList.toggle("sel", v === "work");
   document.getElementById("rg-off").classList.toggle("sel", v === "off");
+}
+// 사유 빠른 버튼 → 입력칸 채우고 그 칩만 강조
+function setRgReason(v) {
+  document.getElementById("rg-reason").value = v;
+  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.toggle("sel", b.dataset.r === v));
 }
 // 전원 선택/해제 토글 버튼 라벨 갱신(전부 체크면 '전원 해제')
 function updateRgAllLabel() {
@@ -1033,6 +1080,7 @@ async function applyRange() {
   if (startS < first || endS > last) return setErr(`${state.y}년 ${state.m}월 내에서만 지정할 수 있습니다.`);
   const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
+  const reason = document.getElementById("rg-reason").value.trim();   // 사유 → override memo
   // 현재 달 범위이므로 일(day) 단위 순회
   const sd = Number(startS.slice(8, 10)), ed = Number(endS.slice(8, 10));
   const targets = [];
@@ -1042,7 +1090,8 @@ async function applyRange() {
   try {
     await Promise.all(targets.map(t => {
       const ov = state.overrides[t.eid + "|" + t.date];
-      return commitOverride(t.eid, t.date, rangeDir, ov ? ov.memo : "");   // 메모 유지, 패턴과 같아지면 자동 삭제
+      const memo = reason || (ov ? ov.memo : "");   // 사유 입력 시 그 값, 없으면 기존 메모 유지
+      return commitOverride(t.eid, t.date, rangeDir, memo);   // 패턴과 같고 메모 없으면 자동 삭제
     }));
     closeSheets();
     render();
@@ -1512,6 +1561,13 @@ document.getElementById("bulk-cancel").onclick = hideBulk;
 document.getElementById("range-btn").onclick = openRangeSheet;
 document.getElementById("rg-all").onclick = toggleRgAll;
 document.getElementById("rg-emp").addEventListener("change", updateRgAllLabel);   // 개별 체크 시 전원 버튼 라벨 갱신
+document.getElementById("rg-reasons").addEventListener("click", (e) => {
+  const b = e.target.closest(".rg-rsn"); if (b) setRgReason(b.dataset.r);
+});
+document.getElementById("rg-reason").addEventListener("input", (e) => {   // 직접 입력 시 일치하는 칩만 강조
+  const v = e.target.value.trim();
+  document.querySelectorAll(".rg-rsn").forEach(b => b.classList.toggle("sel", b.dataset.r === v));
+});
 document.getElementById("rg-work").onclick = () => setRangeSeg("work");
 document.getElementById("rg-off").onclick = () => setRangeSeg("off");
 document.getElementById("rg-cancel").onclick = closeSheets;
