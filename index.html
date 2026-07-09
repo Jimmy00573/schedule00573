@@ -216,6 +216,7 @@
   /* 하위 컨트롤 바 (스케줄/대체휴무 공통) */
   .subbar{display:flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-bottom:1px solid var(--border); flex-wrap:wrap}
   .subbar .mlabel{font-size:15px}
+  .hol-count{font-size:11px; color:var(--sub); white-space:nowrap; margin-left:auto}
   .lv-title{font-size:15px; font-weight:700}
 
   /* 지급/사용 세그 (편집 세그 재사용 + 색상) */
@@ -271,6 +272,7 @@
     <button class="btn" id="today-btn">오늘</button>
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
+    <span class="hol-count" id="hol-count"></span>
   </div>
 
   <div class="legend">
@@ -598,6 +600,35 @@ async function ensureHolidays(year) {
   }
 }
 
+/* ── 공휴일 일수 표시(월 표시 근처): 이번 달 · 올해 ── */
+const _holYearCount = {};   // { year: count } 연도별 그 해 전체 공휴일 수 캐시(연도 바뀔 때만 조회)
+async function getYearHolidayCount(year) {
+  if (year in _holYearCount) return _holYearCount[year];
+  try {
+    const { count, error } = await sb.from("holidays")
+      .select("date", { count: "exact", head: true })
+      .gte("date", `${year}-01-01`).lte("date", `${year}-12-31`);
+    if (error) throw error;
+    _holYearCount[year] = count || 0;
+    return _holYearCount[year];
+  } catch (e) {
+    console.warn("[holidays] 연간 수 조회 실패(무시):", e.message || e);
+    return null;
+  }
+}
+let _holCountSeq = 0;
+async function renderHolCount() {
+  const el = document.getElementById("hol-count");
+  if (!el) return;
+  const seq = ++_holCountSeq;
+  const monthN = Object.keys(state.holidays).length;   // 그 달 조회된 공휴일 행 수(주말 겹침 포함)
+  const year = state.y;
+  el.textContent = `공휴일 이번 달 ${monthN}일`;        // 이번 달은 즉시 표시
+  const yearN = await getYearHolidayCount(year);        // 올해 수(캐시, 연도 바뀔 때만 조회)
+  if (seq !== _holCountSeq) return;                     // 그 사이 다른 달로 이동 → 이 결과 폐기
+  if (yearN != null) el.textContent = `공휴일 이번 달 ${monthN}일 · 올해 ${yearN}일`;
+}
+
 /* ── 월 이동 ── */
 async function goMonth(y, m) {
   state.y = y; state.m = m;
@@ -608,6 +639,7 @@ async function goMonth(y, m) {
     await ensureHolidays(y);   // 그 해 공휴일 DB 보정(없으면 외부 fetch·upsert, 실패해도 무시)
     await Promise.all([loadMonth(y, m), loadLeave()]);   // 스케줄 + 대체휴무 잔여(요약 바용)
     render();
+    renderHolCount();          // 공휴일 일수 표시(이번 달·올해) — fire-and-forget
   } catch (e) {
     document.getElementById("grid").innerHTML = "";
     msg.className = "msg err";
