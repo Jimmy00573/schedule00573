@@ -84,7 +84,8 @@
   thead th.sat .dwd{color:var(--sat)} thead th.sat .dnum{color:var(--sat)}
   thead th.sun .dwd{color:var(--sun)} thead th.sun .dnum{color:var(--sun)}
   thead th.hol .dwd{color:var(--sun)} thead th.hol .dnum{color:var(--sun)}   /* 공휴일=일요일 톤 빨강(토/일보다 우선) */
-  thead th .dhol{font-size:9px; line-height:1.1; color:var(--sun); font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}
+  /* 공휴일 이름: 고정 폭(30px)으로 클립 → 긴 이름이 셀을 밀어 넓히지 못하게(가로 스크롤 방지). 한 줄 고정. */
+  thead th .dhol{font-size:9px; line-height:1.1; height:11px; color:var(--sun); font-weight:600; max-width:30px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   thead th.today{background:#f3f4f6; box-shadow:inset 0 -2px 0 #cbd5e1}
   thead th.today .dnum{font-weight:700}
 
@@ -540,7 +541,8 @@ function render() {
     let cls = (wd===0?"sun":wd===6?"sat":"");
     if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
     if (isToday(y,m,d)) cls += " today";
-    const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holName)}</div>` : "";
+    const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";   // 긴 대체공휴일명 축약(나머지는 CSS 말줄임)
+    const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
     thead += `<th class="${cls.trim()}" data-date="${dateStr(y,m,d)}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
   }
   thead += `</tr>`;
