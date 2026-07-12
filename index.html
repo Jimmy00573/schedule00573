@@ -306,6 +306,16 @@
   .lv-grp-hd{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink); padding:8px 2px 2px}
   .lv-grp-cnt{color:var(--sub); font-weight:400}
   .lv-more{width:100%; margin:4px 0 2px; padding:7px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--sub); font-size:12px; cursor:pointer; font-family:inherit}
+  /* 회사 휴무일 관리 */
+  .hol-list{max-height:40vh; overflow:auto; -webkit-overflow-scrolling:touch; margin-top:2px}
+  .hol-item{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line); font-size:13px}
+  .hol-item:last-child{border-bottom:0}
+  .hol-item .hol-d{color:var(--sub); flex:0 0 auto; min-width:74px; font-variant-numeric:tabular-nums}
+  .hol-item .hol-nm{flex:1 1 auto; word-break:break-word}
+  .hol-item.custom .hol-nm{color:var(--sun)}
+  .hol-tag{font-size:11px; color:var(--sub); background:#f1f3f5; border-radius:8px; padding:2px 7px; flex:0 0 auto}
+  .hol-del{border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:6px; font-size:11px; padding:5px 8px; cursor:pointer; flex:0 0 auto; font-family:inherit}
+  .hol-empty{font-size:12px; color:var(--sub); padding:8px 4px}
 
   /* 직원별 휴무 종합(조회 전용) */
   #crew-body{max-height:calc(100vh - 180px); overflow:auto; -webkit-overflow-scrolling:touch}
@@ -349,6 +359,7 @@
     <button class="btn adm-only" id="work-btn" style="display:none">근무시간</button>
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
+    <button class="btn adm-only" id="hol-btn" style="display:none">휴무일</button>
     <span class="hol-count" id="hol-count"></span>
   </div>
 
@@ -572,6 +583,20 @@
     <button class="btn2 ghost" id="wk-cancel">취소</button>
     <button class="btn2 pri" id="wk-save">저장</button>
   </div>
+</div>
+
+<!-- 회사 자체 휴무일 관리 (관리자) -->
+<div class="sheet" id="hol-sheet">
+  <h3>회사 휴무일</h3>
+  <div class="row2" style="margin-top:4px">
+    <div style="flex:1"><label class="lbl">날짜</label><input id="hol-date" type="date"></div>
+    <div style="flex:1.4"><label class="lbl">이름</label><input id="hol-name" type="text" placeholder="예) 창립기념일"></div>
+  </div>
+  <button class="btn2 pri" id="hol-add" style="width:100%;margin-top:10px">자체 휴무일 추가</button>
+  <div class="hint" id="hol-msg"></div>
+  <label class="lbl">목록 (공식 공휴일은 삭제 불가)</label>
+  <div id="hol-list" class="hol-list"></div>
+  <button class="close" id="hol-close">닫기</button>
 </div>
 
 <!-- 직원 관리 모달 -->
@@ -998,6 +1023,78 @@ async function renderHolCount() {
   const yearN = await getYearHolidayCount(year);        // 올해 수(캐시, 연도 바뀔 때만 조회)
   if (seq !== _holCountSeq) return;                     // 그 사이 다른 달로 이동 → 이 결과 폐기
   if (yearN != null) el.textContent = `공휴일 이번 달 ${monthN}일 · 올해 ${yearN}일`;
+}
+
+/* ── 회사 자체 휴무일 관리(관리자): holidays.is_custom=true. 표시만(자동 휴무 아님) ── */
+function openHolSheet() {
+  document.getElementById("hol-date").value = dateStr(state.y, state.m, 1);   // 보는 달 1일 기본
+  document.getElementById("hol-name").value = "";
+  const msg = document.getElementById("hol-msg");
+  msg.classList.remove("err"); msg.textContent = "";
+  loadHolList();
+  openSheetEl("hol-sheet");
+}
+async function loadHolList() {
+  const box = document.getElementById("hol-list");
+  box.innerHTML = `<div class="hol-empty">불러오는 중…</div>`;
+  const y = state.y;
+  const { data, error } = await sb.from("holidays")
+    .select("date,name,is_custom")
+    .gte("date", `${y}-01-01`).lte("date", `${y}-12-31`)
+    .order("date", { ascending: true });
+  if (error) { box.innerHTML = `<div class="hol-empty">불러오기 실패: ${esc(error.message)}</div>`; return; }
+  const rows = data || [];
+  if (!rows.length) { box.innerHTML = `<div class="hol-empty">${y}년 휴무일 없음</div>`; return; }
+  box.innerHTML = rows.map(h => {
+    const [ , mm, dd] = h.date.split("-").map(Number);
+    const wd = WD[weekday(...h.date.split("-").map(Number))];
+    const isC = h.is_custom === true;
+    const right = isC
+      ? `<button class="hol-del" data-date="${h.date}">삭제</button>`
+      : `<span class="hol-tag">공식</span>`;
+    return `<div class="hol-item ${isC ? "custom" : "official"}">`
+      + `<span class="hol-d">${mm}/${dd}(${wd})</span><span class="hol-nm">${esc(h.name)}</span>${right}</div>`;
+  }).join("");
+}
+async function addHoliday() {
+  const date = document.getElementById("hol-date").value;
+  const name = document.getElementById("hol-name").value.trim();
+  const msg = document.getElementById("hol-msg");
+  const setMsg = (t, err) => { msg.textContent = t; msg.classList.toggle("err", !!err); };
+  if (!date)  return setMsg("날짜를 입력하세요.", true);
+  if (!name)  return setMsg("이름을 입력하세요.", true);
+  const btn = document.getElementById("hol-add");
+  btn.disabled = true; btn.textContent = "추가 중…";
+  try {
+    // 같은 날짜(PK) 중복 확인
+    const { data: dup, error: dupErr } = await sb.from("holidays").select("date,is_custom").eq("date", date).maybeSingle();
+    if (dupErr) throw dupErr;
+    if (dup) return setMsg(dup.is_custom ? "이미 등록된 자체 휴무일입니다." : "그 날짜는 공식 공휴일입니다.", true);
+    const { error } = await sb.from("holidays").insert({ date, name, is_custom: true });
+    if (error) throw error;
+    document.getElementById("hol-name").value = "";
+    setMsg(`추가됨: ${date} ${name}`, false);
+    await loadHolList();
+    await loadMonth(state.y, state.m); render();   // 헤더 즉시 반영
+  } catch (e) {
+    setMsg("추가 실패: " + (e.message || e), true);
+  } finally {
+    btn.disabled = false; btn.textContent = "자체 휴무일 추가";
+  }
+}
+async function deleteHoliday(date) {
+  if (!confirm(`${date} 자체 휴무일을 삭제할까요?`)) return;
+  const msg = document.getElementById("hol-msg");
+  try {
+    // is_custom=true만 삭제(공식 공휴일 보호)
+    const { error } = await sb.from("holidays").delete().eq("date", date).eq("is_custom", true);
+    if (error) throw error;
+    msg.classList.remove("err"); msg.textContent = `삭제됨: ${date}`;
+    await loadHolList();
+    await loadMonth(state.y, state.m); render();
+  } catch (e) {
+    msg.textContent = "삭제 실패: " + (e.message || e); msg.classList.add("err");
+  }
 }
 
 /* ── 월 이동 ── */
@@ -2011,6 +2108,15 @@ document.getElementById("rg-type-btns").addEventListener("click", (e) => {   // 
 });
 document.getElementById("rg-cancel").onclick = closeSheets;
 document.getElementById("rg-apply").onclick = applyRange;
+
+// 회사 자체 휴무일
+document.getElementById("hol-btn").onclick = openHolSheet;
+document.getElementById("hol-close").onclick = closeSheets;
+document.getElementById("hol-add").onclick = addHoliday;
+document.getElementById("hol-list").addEventListener("click", (e) => {
+  const del = e.target.closest(".hol-del");
+  if (del) deleteHoliday(del.dataset.date);
+});
 
 // 근무시간 설정
 document.getElementById("work-btn").onclick = openWorkSheet;
