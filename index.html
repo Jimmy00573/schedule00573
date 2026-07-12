@@ -137,21 +137,7 @@
   td.cell.tcol{box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
   td.cell.tcol::after{content:""; position:absolute; inset:0; background:rgba(59,130,246,.09); pointer-events:none}
   td.cell.tcol > *{position:relative; z-index:1}   /* 메모 점·띠 라벨을 틴트 위로 */
-  td.cell.selecting{background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb}   /* 드래그 선택 */
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
-  body.admin #grid{-webkit-user-select:none; user-select:none}   /* 드래그 중 텍스트선택 방지 */
-
-  /* 일괄 액션바 */
-  .bulk-bar{position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:45;
-    background:#fff; border:1px solid var(--border); border-radius:12px;
-    box-shadow:0 6px 24px rgba(0,0,0,.18); padding:10px 12px; display:flex; align-items:center; gap:8px}
-  .bulk-bar #bulk-count{font-size:13px; font-weight:700; margin-right:2px; white-space:nowrap}
-  .bulk-bar button{padding:9px 15px; border-radius:9px; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--border); font-family:inherit}
-  .bulk-bar .b-work{background:var(--work-bg); border-color:var(--work); color:#166534}
-  .bulk-bar .b-off{background:#e5e7eb; border-color:#9ca3af; color:#374151}
-  .bulk-bar .b-cancel{background:#fff; color:var(--sub)}
-  .bulk-bar button:disabled{opacity:.6}
-
   /* 집계(하단 고정) */
   tfoot td{
     position:sticky; bottom:0; z-index:6; background:#f8fafc; text-align:center;
@@ -179,7 +165,6 @@
 
   /* 관리자 모드 셀 커서 */
   body.admin td.cell{cursor:pointer}
-  body.admin thead th[data-date]{cursor:pointer}   /* 날짜 헤더 클릭 → 그 날 전원 일괄 */
 
   /* 시트 공통 입력 요소 */
   .lbl{display:block; font-size:12px; color:var(--sub); margin:10px 0 4px}
@@ -334,7 +319,7 @@
       <button id="next" aria-label="다음 달">›</button>
     </div>
     <button class="btn" id="today-btn">오늘</button>
-    <button class="btn adm-only" id="range-btn" style="display:none">기간</button>
+    <button class="btn adm-only" id="range-btn" style="display:none">기간 입력</button>
     <button class="btn adm-only" id="work-btn" style="display:none">근무시간</button>
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
@@ -405,21 +390,15 @@
   <button class="close" id="view-close">닫기</button>
 </div>
 
-<!-- 관리자: 근무 편집 -->
+<!-- 근무 조회(수정 불가 — 입력은 기간 폼으로 일원화) -->
 <div class="sheet" id="edit-sheet">
-  <h3 id="edit-title">근무 수정</h3>
+  <h3 id="edit-title">근무 정보</h3>
   <div class="memo-date" id="edit-date"></div>
-  <div class="seg">
-    <button id="seg-work" data-v="work">근무</button>
-    <button id="seg-off" data-v="off">휴무</button>
-  </div>
+  <div class="hint" id="edit-status"></div>
+  <label class="lbl">메모</label>
+  <div class="memo-text" id="edit-memo"></div>
   <div class="hint" id="edit-hint"></div>
-  <label class="lbl">메모 (선택)</label>
-  <textarea id="edit-memo" rows="2" placeholder="예) 병가, 휴무 요청"></textarea>
-  <div class="row2">
-    <button class="btn2 ghost" id="edit-cancel">닫기</button>
-    <button class="btn2 pri" id="edit-save">저장</button>
-  </div>
+  <button class="close" id="edit-cancel">닫기</button>
 </div>
 
 <!-- 관리자 PIN -->
@@ -568,14 +547,6 @@
     <button class="btn2 ghost" id="pat-cancel">닫기</button>
     <button class="btn2 pri" id="pat-save">저장</button>
   </div>
-</div>
-
-<!-- 드래그 다중선택 일괄 액션바 -->
-<div id="bulk-bar" class="bulk-bar" style="display:none">
-  <span id="bulk-count"></span>
-  <button class="b-work" id="bulk-work">근무</button>
-  <button class="b-off" id="bulk-off">휴무</button>
-  <button class="b-cancel" id="bulk-cancel">취소</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -990,29 +961,18 @@ function openViewSheet(name, date, memo) {
   openSheetEl("view-sheet");
 }
 
-/* ── 관리자: 근무 편집 ── */
-let editCtx = null;
+/* ── 셀 클릭: 근무 조회(수정 불가 — 입력은 기간 폼으로 일원화, B-2) ── */
 function openEditSheet(eid, date, name) {
   const [y,m,d] = date.split("-").map(Number);
   const emp = state.employees.find(e => String(e.id) === String(eid));
   if (!emp) return;
-  const pat = state.patterns[eid];
-  const patternSet = !!pat;
-  const patternStatus = patternSet ? (pat.off_weekdays.includes(weekday(y,m,d)) ? "off" : "work") : "work";
   const cs = cellStatus(emp, y, m, d);
-  editCtx = { eid, date, patternStatus, selStatus: cs.status };
   document.getElementById("edit-title").textContent = name;
   document.getElementById("edit-date").textContent = `${date} (${WD[weekday(y,m,d)]})`;
-  document.getElementById("edit-memo").value = cs.memo || "";
-  document.getElementById("edit-hint").textContent =
-    `패턴 기본: ${patternStatus === "off" ? "휴무" : "근무"}${patternSet ? "" : " (미설정)"}`;
-  setSeg(cs.status);
+  document.getElementById("edit-status").textContent = `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
+  document.getElementById("edit-memo").textContent = cs.memo || "—";
+  document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
   openSheetEl("edit-sheet");
-}
-function setSeg(v) {
-  if (editCtx) editCtx.selStatus = v;
-  document.getElementById("seg-work").classList.toggle("sel", v === "work");
-  document.getElementById("seg-off").classList.toggle("sel", v === "off");
 }
 // 그날 패턴 상태(근무/휴무)
 function patternStatusOf(eid, y, m, d) {
@@ -1036,83 +996,6 @@ async function commitOverride(eid, date, status, memo) {
     if (error) throw error;
     state.overrides[eid + "|" + date] = data;
   }
-}
-
-async function saveEdit() {
-  if (!editCtx) return;
-  const { eid, date, selStatus } = editCtx;
-  const memo = document.getElementById("edit-memo").value.trim();
-  const btn = document.getElementById("edit-save");
-  btn.disabled = true; btn.textContent = "저장 중…";
-  try {
-    await commitOverride(eid, date, selStatus, memo);
-    closeSheets();
-    render();
-  } catch (e) {
-    alert("저장 실패: " + (e.message || e));
-    console.error(e);
-  } finally {
-    btn.disabled = false; btn.textContent = "저장";
-  }
-}
-
-/* ── 드래그 다중 선택(관리자·마우스): 같은 직원 행에서 가로 범위 → 일괄 근무/휴무 ── */
-let _drag = false, _dragEid = null, _dragStartDay = 0, _selDates = [], _dragConsumed = false, _bulkPending = null;
-const dayOf = ds => Number(ds.slice(8, 10));
-
-function paintRange(day1, day2) {
-  const g = document.getElementById("grid");
-  const lo = Math.min(day1, day2), hi = Math.max(day1, day2);
-  _selDates = [];
-  for (let d = lo; d <= hi; d++) _selDates.push(dateStr(state.y, state.m, d));
-  g.querySelectorAll("td.cell.selecting").forEach(c => c.classList.remove("selecting"));
-  for (const ds of _selDates) {
-    const c = g.querySelector(`td.cell[data-eid="${_dragEid}"][data-date="${ds}"]`);
-    if (c) c.classList.add("selecting");
-  }
-}
-function clearSelection() {
-  document.getElementById("grid").querySelectorAll("td.cell.selecting").forEach(c => c.classList.remove("selecting"));
-  _selDates = [];
-}
-// targets: [{eid, date}] — 드래그(같은 직원 여러 날)·헤더 클릭(같은 날 전원) 공용
-function showBulk(targets, label) {
-  if (!targets.length) return;
-  _bulkPending = { targets };
-  document.getElementById("bulk-count").textContent = label;
-  document.getElementById("bulk-bar").style.display = "flex";
-}
-function hideBulk() {
-  _bulkPending = null;
-  document.getElementById("bulk-bar").style.display = "none";
-  clearSelection();
-}
-async function bulkApply(status) {
-  if (!_bulkPending) return;
-  const { targets } = _bulkPending;
-  const btns = document.getElementById("bulk-bar").querySelectorAll("button");
-  btns.forEach(b => b.disabled = true);
-  try {
-    await Promise.all(targets.map(t => {
-      const ov = state.overrides[t.eid + "|" + t.date];
-      return commitOverride(t.eid, t.date, status, ov ? ov.memo : "");   // 메모 유지, 패턴과 같아지면 자동 삭제
-    }));
-    hideBulk();
-    render();
-  } catch (e) {
-    alert("일괄 저장 실패: " + (e.message || e));
-    console.error(e);
-  } finally {
-    btns.forEach(b => b.disabled = false);
-  }
-}
-// 날짜 헤더 클릭 → 그 날 재직 전원 대상으로 액션바 표시
-function openHeaderBulk(ds) {
-  const [ , m, d] = ds.split("-").map(Number);
-  const targets = state.employees.map(e => ({ eid: e.id, date: ds }));
-  if (!targets.length) return;
-  clearSelection();
-  showBulk(targets, `${m}월 ${d}일 전원`);
 }
 
 /* ── 기간 지정 일괄 입력(관리자): 직원 다중 × 시작~종료일 → 유형별 스케줄 override + 장부 자동 기록 ── */
@@ -1328,7 +1211,6 @@ function doLogout() {
   state.isAdmin = false;
   sessionStorage.removeItem("sched_admin");
   localStorage.removeItem("sched_admin_keep");
-  hideBulk();   // 드래그 일괄바 열려있으면 정리
   updateAuthUI();
   if (state.tab === "leave") renderLeave(); else if (state.tab === "annual") renderAnnual(); else render();
 }
@@ -1810,9 +1692,6 @@ document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m);
 backdrop().onclick = closeSheets;
 document.getElementById("view-close").onclick = closeSheets;
 document.getElementById("edit-cancel").onclick = closeSheets;
-document.getElementById("edit-save").onclick = saveEdit;
-document.getElementById("seg-work").onclick = () => setSeg("work");
-document.getElementById("seg-off").onclick = () => setSeg("off");
 document.getElementById("login-cancel").onclick = closeSheets;
 document.getElementById("login-do").onclick = doLogin;
 
@@ -1896,47 +1775,12 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
   renderAnnual();
 });
 
+// 셀 클릭 → 근무 조회(수정 불가). 입력은 기간 폼으로 일원화(B-2). 헤더/드래그 입력 제거.
 document.getElementById("grid").addEventListener("click", (e) => {
-  if (_dragConsumed) { _dragConsumed = false; return; }   // 드래그 다중선택이면 시트 안 엶
-  const th = e.target.closest("th[data-date]");   // 날짜 헤더 클릭 → 그 날 전원 일괄(관리자만)
-  if (th) { if (state.isAdmin) openHeaderBulk(th.dataset.date); return; }
   const td = e.target.closest("td.cell");
   if (!td) return;
-  if (state.isAdmin) {
-    openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
-  } else if (td.dataset.memo) {
-    openViewSheet(td.dataset.name, td.dataset.date, td.dataset.memo);
-  }
+  openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
 });
-
-// 드래그 다중 선택 (관리자·마우스만; 터치/단일탭은 click으로 기존 시트)
-const _gridEl = document.getElementById("grid");
-_gridEl.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "mouse" || !state.isAdmin) return;
-  const td = e.target.closest("td.cell");
-  if (!td) return;
-  hideBulk();
-  _drag = true; _dragConsumed = false; _selDates = [];
-  _dragEid = td.dataset.eid; _dragStartDay = dayOf(td.dataset.date);
-  e.preventDefault();   // 시작 셀은 아직 칠하지 않음(이동해야 선택) → 단일클릭 깜빡임 방지
-});
-_gridEl.addEventListener("pointermove", (e) => {
-  if (!_drag) return;
-  const td = e.target.closest(`td.cell[data-eid="${_dragEid}"]`);
-  if (!td) return;
-  paintRange(_dragStartDay, dayOf(td.dataset.date));
-});
-document.addEventListener("pointerup", () => {
-  if (!_drag) return;
-  _drag = false;
-  if (_selDates.length >= 2) {
-    _dragConsumed = true;
-    showBulk(_selDates.map(d => ({ eid: _dragEid, date: d })), `선택 ${_selDates.length}칸`);
-  } else { clearSelection(); }   // 단일 → click 핸들러가 편집 시트 오픈
-});
-document.getElementById("bulk-work").onclick = () => bulkApply("work");
-document.getElementById("bulk-off").onclick = () => bulkApply("off");
-document.getElementById("bulk-cancel").onclick = hideBulk;
 
 // 기간 지정 일괄 입력
 document.getElementById("range-btn").onclick = openRangeSheet;
