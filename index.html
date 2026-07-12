@@ -69,12 +69,15 @@
   .lchip.neg b{color:#dc2626}
 
   /* 오늘 근무 인원 바 */
-  .today-crew{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px;
+  .today-crew{display:flex; flex-direction:column; gap:2px;
     padding:8px 12px; background:#eff6ff; border-bottom:1px solid var(--border);
     max-width:1040px; margin:0 auto}
+  .today-crew .tc-row{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px}
   .today-crew .tc-title{font-size:12px; font-weight:700; color:#1d4ed8; white-space:nowrap}
   .today-crew .tc-names{font-size:12px; color:var(--ink)}
   .today-crew .tc-names.tc-none{color:var(--sub)}
+  .today-crew .tc-prev .tc-title, .today-crew .tc-next .tc-title{color:var(--sub); font-weight:600}
+  .today-crew .tc-prev .tc-names, .today-crew .tc-next .tc-names{color:var(--sub)}
 
   /* 월 근무 집계(관리자 전용) */
   .work-summary{max-width:640px; margin:14px auto 26px; padding:0 12px}
@@ -744,17 +747,29 @@ function renderLeaveBar() {
   bar.style.display = "flex";
 }
 
-/* ── 오늘 근무 인원 목록(보는 달에 오늘 포함 시만) — cellStatus 재사용 ── */
+/* ── 근무 인원 바: 어제·오늘·내일(보는 달에 오늘 포함 시만) — cellStatus 재사용 ── */
 function renderTodayCrew() {
   const el = document.getElementById("today-crew");
   if (!el) return;
   if (!(state.y === today.y && state.m === today.m) || !state.employees.length) {
     el.innerHTML = ""; el.style.display = "none"; return;
   }
-  const working = state.employees.filter(e => cellStatus(e, today.y, today.m, today.d).status !== "off");
-  const names = working.map(e => esc(e.name)).join(", ");
-  el.innerHTML = `<span class="tc-title">오늘 ${today.m}/${today.d} 근무 ${working.length}명</span>`
-    + (names ? `<span class="tc-names">${names}</span>` : `<span class="tc-names tc-none">전원 휴무</span>`);
+  // 한 날의 근무자 줄 생성. 보는 달과 다른 달(월초 어제·월말 내일)이면 생략("").
+  const rowFor = (label, cls, y, m, d) => {
+    if (y !== state.y || m !== state.m) return "";
+    const working = state.employees.filter(e => cellStatus(e, y, m, d).status !== "off");
+    const names = working.map(e => esc(e.name)).join(", ");
+    return `<div class="tc-row ${cls}">`
+      + `<span class="tc-title">${label} ${m}/${d} 근무 ${working.length}명</span>`
+      + (names ? `<span class="tc-names">${names}</span>` : `<span class="tc-names tc-none">전원 휴무</span>`)
+      + `</div>`;
+  };
+  const prev = new Date(today.y, today.m - 1, today.d - 1);
+  const next = new Date(today.y, today.m - 1, today.d + 1);
+  el.innerHTML =
+      rowFor("어제", "tc-prev", prev.getFullYear(), prev.getMonth() + 1, prev.getDate())
+    + rowFor("오늘", "tc-now",  today.y, today.m, today.d)
+    + rowFor("내일", "tc-next", next.getFullYear(), next.getMonth() + 1, next.getDate());
   el.style.display = "flex";
 }
 
