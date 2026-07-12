@@ -123,6 +123,7 @@
     min-width:64px; width:64px; padding:0 8px; font-size:12px; font-weight:600;
     white-space:nowrap; height:30px;
   }
+  td.name[data-eid]{cursor:pointer}   /* 이름 클릭 → 휴무 종합 */
 
   /* 데이터 셀 */
   td.cell{
@@ -298,6 +299,21 @@
   .lv-days.grant{color:#16a34a} .lv-days.use{color:#dc2626}
   .lv-del{border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:6px; font-size:11px; padding:5px 8px; cursor:pointer; flex:0 0 auto; font-family:inherit}
   #lv-emp, #lv-cat{width:100%}
+
+  /* 직원별 휴무 종합(조회 전용) */
+  #crew-body{max-height:calc(100vh - 180px); overflow:auto; -webkit-overflow-scrolling:touch}
+  .crew-sec{padding:8px 0; border-bottom:1px solid var(--line)}
+  .crew-h{font-size:13px; font-weight:700; color:var(--ink)}
+  .crew-h .crew-sum{font-size:12px; font-weight:600; color:var(--sub); margin-left:6px}
+  .crew-dates{font-size:12px; color:var(--ink); margin-top:4px; line-height:1.7}
+  .crew-list{margin-top:4px}
+  .crew-item{display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0}
+  .crew-item .crew-d{color:var(--sub); flex:0 0 auto; min-width:40px}
+  .crew-item .crew-c{flex:1 1 auto; word-break:break-word}
+  .crew-item .crew-n{font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto}
+  .crew-none{font-size:12px; color:var(--sub)}
+  .crew-total{margin-top:10px; font-size:13px; font-weight:700}
+  .crew-total .crew-sub{font-size:11px; font-weight:500; color:var(--sub)}
 </style>
 </head>
 <body>
@@ -391,6 +407,13 @@
   <div class="memo-date" id="view-date"></div>
   <div class="memo-text" id="view-text"></div>
   <button class="close" id="view-close">닫기</button>
+</div>
+
+<!-- 직원별 휴무 종합(조회 전용 — 이름 클릭) -->
+<div class="sheet" id="crew-sheet">
+  <h3 id="crew-title">휴무 종합</h3>
+  <div id="crew-body"></div>
+  <button class="close" id="crew-close">닫기</button>
 </div>
 
 <!-- 근무 조회(수정 불가 — 입력은 기간 폼으로 일원화) -->
@@ -691,7 +714,7 @@ function render() {
       } else i++;
     }
     // 렌더
-    let row = `<tr><td class="name">${esc(emp.name)}</td>`;
+    let row = `<tr><td class="name" data-eid="${emp.id}">${esc(emp.name)}</td>`;
     for (let d=1; d<=dim; d++){
       const cs = cells[d-1], sp = span[d-1];
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
@@ -974,6 +997,70 @@ function openViewSheet(name, date, memo) {
   document.getElementById("view-date").textContent = date;
   document.getElementById("view-text").textContent = memo;
   openSheetEl("view-sheet");
+}
+
+/* ── 직원별 휴무 종합(조회 전용): 이름 클릭 → 연차·대체휴무·경조사및기타 한눈에 ──
+   기존 계산 함수(annualTotals/leaveTotals/grantOf/fmtDays) 재사용. 편집 없음. */
+const _crewMD = ds => { const p = String(ds).split("-"); return `${Number(p[1])}/${Number(p[2])}`; };
+const _crewByDate = (a, b) => (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));   // 오름차순
+async function openCrewSummary(eid) {
+  const emp = state.employees.find(e => String(e.id) === String(eid));
+  if (!emp) return;
+  document.getElementById("crew-title").textContent = `${esc(emp.name)} 휴무 종합`;
+  const body = document.getElementById("crew-body");
+  body.innerHTML = `<div class="msg">불러오는 중…</div>`;
+  openSheetEl("crew-sheet");
+  try {
+    // 연차(state.annual/annualDays)는 스케줄 탭에서 미로드일 수 있어 최신 확보. etc는 그 직원 것만 조회.
+    const [ , , etcRes] = await Promise.all([
+      loadAnnual(),
+      loadLeave(),
+      sb.from("etc_leave_ledger").select("*").eq("employee_id", eid).order("date", { ascending: true }),
+    ]);
+    if (etcRes.error) throw etcRes.error;
+    body.innerHTML = crewSummaryHtml(emp, etcRes.data || []);
+  } catch (e) {
+    body.innerHTML = `<div class="msg err">불러오기 실패: ${esc(e.message || e)}</div>`;
+  }
+}
+function crewSummaryHtml(emp, etc) {
+  const eid = emp.id;
+  // 연차: 부여 − 사용 = 잔여 + 사용 날짜 목록
+  const grant = grantOf(emp);
+  const aUse = annualTotals()[eid] || 0;
+  const aRows = state.annual.filter(r => String(r.employee_id) === String(eid)).slice().sort(_crewByDate);
+  const aDates = aRows.map(r => _crewMD(r.date) + (Number(r.days) !== 1 ? `(${fmtDays(r.days)})` : "")).join(", ");
+  // 대체휴무: 지급 − 사용 = 잔여 + 내역
+  const lt = leaveTotals()[eid] || { grant: 0, use: 0 };
+  const lRows = state.ledger.filter(r => String(r.employee_id) === String(eid)).slice().sort(_crewByDate);
+  const lList = lRows.map(r => {
+    const g = r.direction === "grant";
+    const cat = (r.category ? esc(r.category) : "") + (r.reason ? ` · ${esc(r.reason)}` : "");
+    return `<div class="crew-item"><span class="lb ${g ? "grant" : "use"}">${g ? "지급" : "사용"}</span>`
+      + `<span class="crew-d">${_crewMD(r.date)}</span><span class="crew-c">${cat}</span>`
+      + `<span class="crew-n">${g ? "+" : "−"}${fmtDays(r.days)}</span></div>`;
+  }).join("");
+  // 경조사및기타: 날짜·사유 (행당 1일)
+  const eRows = (etc || []).slice().sort(_crewByDate);
+  const eList = eRows.map(r =>
+    `<div class="crew-item"><span class="crew-d">${_crewMD(r.date)}</span>`
+    + `<span class="crew-c">${r.reason ? esc(r.reason) : (r.category ? esc(r.category) : "경조사및기타")}</span></div>`
+  ).join("");
+  const totalOff = aUse + lt.use + eRows.length;
+  return `
+    <div class="crew-sec">
+      <div class="crew-h">연차<span class="crew-sum">부여 ${fmtDays(grant)} · 사용 ${fmtDays(aUse)} · 잔여 ${fmtDays(grant - aUse)}일</span></div>
+      <div class="crew-dates">${aRows.length ? aDates : `<span class="crew-none">없음</span>`}</div>
+    </div>
+    <div class="crew-sec">
+      <div class="crew-h">대체휴무<span class="crew-sum">지급 ${fmtDays(lt.grant)} · 사용 ${fmtDays(lt.use)} · 잔여 ${fmtDays(lt.grant - lt.use)}일</span></div>
+      <div class="crew-list">${lRows.length ? lList : `<span class="crew-none">없음</span>`}</div>
+    </div>
+    <div class="crew-sec">
+      <div class="crew-h">경조사및기타<span class="crew-sum">${eRows.length}일</span></div>
+      <div class="crew-list">${eRows.length ? eList : `<span class="crew-none">없음</span>`}</div>
+    </div>
+    <div class="crew-total">총 휴무 ${fmtDays(totalOff)}일 <span class="crew-sub">(연차 ${fmtDays(aUse)} + 대체휴무 ${fmtDays(lt.use)} + 경조사및기타 ${eRows.length})</span></div>`;
 }
 
 /* ── 셀 클릭: 근무 조회(수정 불가 — 입력은 기간 폼으로 일원화, B-2) ── */
@@ -1706,6 +1793,7 @@ document.getElementById("next").onclick = () => step(1);
 document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m);
 backdrop().onclick = closeSheets;
 document.getElementById("view-close").onclick = closeSheets;
+document.getElementById("crew-close").onclick = closeSheets;
 document.getElementById("edit-cancel").onclick = closeSheets;
 document.getElementById("login-cancel").onclick = closeSheets;
 document.getElementById("login-do").onclick = doLogin;
@@ -1792,6 +1880,8 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
 
 // 셀 클릭 → 근무 조회(수정 불가). 입력은 기간 폼으로 일원화(B-2). 헤더/드래그 입력 제거.
 document.getElementById("grid").addEventListener("click", (e) => {
+  const nameTd = e.target.closest("td.name[data-eid]");   // 직원 이름 → 휴무 종합(조회)
+  if (nameTd) { openCrewSummary(nameTd.dataset.eid); return; }
   const td = e.target.closest("td.cell");
   if (!td) return;
   openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
