@@ -116,14 +116,20 @@
   /* 이름 열(좌측 고정) */
   th.corner{
     position:sticky; left:0; top:0; z-index:8; background:#eef2f7;
-    min-width:64px; width:64px; text-align:center; font-size:12px; color:var(--sub);
+    min-width:70px; width:70px; text-align:center; font-size:12px; color:var(--sub);
   }
   td.name{
     position:sticky; left:0; z-index:5; background:#fff;
-    min-width:64px; width:64px; padding:0 8px; font-size:12px; font-weight:600;
+    min-width:70px; width:70px; padding:0 8px; font-size:12px; font-weight:600;
     white-space:nowrap; height:30px;
   }
   td.name[data-eid]{cursor:pointer}   /* 이름 클릭 → 휴무 종합 */
+  td.name .nm-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  /* 이름 아래 주차별(월~일) 휴무 수 — 기본 주2회와 다르면 강조 */
+  .wk-off{margin-top:1px; font-size:9px; line-height:1.1; font-weight:700; white-space:nowrap; color:var(--sub)}
+  .wk-off .wo-over{color:#dc2626}   /* 2 초과 = 빨강 */
+  .wk-off .wo-under{color:#2563eb}  /* 2 미만 = 파랑 */
+  .wk-off .wo-sep{color:var(--border); font-weight:400; margin:0 1px}
 
   /* 데이터 셀 */
   td.cell{
@@ -789,8 +795,19 @@ function render() {
         i = j+1;
       } else i++;
     }
+    // 주차별(월~일) 휴무 수 — 그 달 날짜만 카운트(달 경계 주는 그 달 날짜만). cellStatus 재사용.
+    const weekOffs = [];
+    for (let d=1; d<=dim; d++){
+      if (d===1 || weekday(y,m,d)===1) weekOffs.push(0);   // 월요일(또는 1일) = 새 주 시작
+      if (cells[d-1].status === "off") weekOffs[weekOffs.length-1]++;
+    }
+    const woTitle = weekOffs.map((n,i) => `${i+1}주차 ${n}일`).join(", ");
+    const woHtml = weekOffs.map(n => {
+      const c = n > 2 ? " wo-over" : (n < 2 ? " wo-under" : "");   // 기본 2와 다르면 강조
+      return `<span class="wo${c}">${n}</span>`;
+    }).join(`<span class="wo-sep">·</span>`);
     // 렌더
-    let row = `<tr><td class="name" data-eid="${emp.id}">${esc(emp.name)}</td>`;
+    let row = `<tr><td class="name" data-eid="${emp.id}"><div class="nm-name">${esc(emp.name)}</div><div class="wk-off" title="${woTitle}">${woHtml}</div></td>`;
     for (let d=1; d<=dim; d++){
       const cs = cells[d-1], sp = span[d-1];
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
