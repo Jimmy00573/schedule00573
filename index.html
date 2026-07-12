@@ -1332,7 +1332,7 @@ function openRangeSheet() {
   const startDef = (state.y === today.y && state.m === today.m) ? dateStr(today.y, today.m, today.d) : first;
   const s = document.getElementById("rg-start"), en = document.getElementById("rg-end");
   s.min = first;  s.max = last;  s.value = startDef;   // 월 범위 제한(min/max) 유지
-  en.min = first; en.max = last; en.value = startDef;
+  en.min = startDef; en.max = last; en.value = startDef;   // 종료 최소 = 시작(이전 날짜 선택 방지)
   const hint = document.getElementById("rg-hint");
   hint.classList.remove("err");
   hint.textContent = `${state.y}년 ${state.m}월 내에서 지정하세요.`;
@@ -2209,6 +2209,11 @@ document.getElementById("rg-type-btns").addEventListener("click", (e) => {   // 
 });
 document.getElementById("rg-cancel").onclick = closeSheets;
 document.getElementById("rg-apply").onclick = applyRange;
+document.getElementById("rg-start").addEventListener("change", (e) => {   // 시작일 바꾸면 종료일도 같은 날로(하루 지정)
+  const en = document.getElementById("rg-end");
+  en.min = e.target.value;      // 종료 < 시작 방지
+  en.value = e.target.value;
+});
 
 // 회사 자체 휴무일
 document.getElementById("hol-btn").onclick = openHolSheet;
