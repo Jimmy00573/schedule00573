@@ -525,14 +525,16 @@
   <div id="rg-ot" style="display:none">
     <div class="row2" style="margin-top:8px">
       <div style="flex:1">
+        <label class="lbl">연장 시작시각</label>
+        <input id="rg-ot-start" type="time" value="17:00">
+      </div>
+      <div style="flex:1">
         <label class="lbl">연장 종료시각</label>
         <input id="rg-ot-end" type="time" value="20:00">
       </div>
-      <div style="flex:1">
-        <label class="lbl">연장 휴게(분)</label>
-        <input id="rg-ot-break" type="number" min="0" step="5" value="20" inputmode="numeric">
-      </div>
     </div>
+    <label class="lbl">연장 휴게(분)</label>
+    <input id="rg-ot-break" type="number" min="0" step="5" value="20" inputmode="numeric">
     <div class="hint" id="rg-ot-hint"></div>
   </div>
   <label class="lbl">사유 (선택)</label>
@@ -818,10 +820,11 @@ function workMinutes(cfg) {
   const mins = parseHM(cfg.end) - parseHM(cfg.start) - (Number(cfg.breakMin) || 0);
   return mins > 0 ? mins : 0;
 }
-// 그 날 연장근무 분 = (연장종료 − 기본퇴근) − 연장휴게. override에 ot_end 있을 때만. 음수는 0.
+// 그 날 연장근무 분 = (연장종료 − 연장시작) − 연장휴게. ot_start 없으면 기본 퇴근시각(하위호환). 음수는 0.
 function otMinutes(ov) {
   if (!ov || !ov.ot_end) return 0;
-  const mins = parseHM(ov.ot_end) - parseHM(state.workCfg.end) - (Number(ov.ot_break_min) || 0);
+  const start = ov.ot_start || state.workCfg.end;
+  const mins = parseHM(ov.ot_end) - parseHM(start) - (Number(ov.ot_break_min) || 0);
   return mins > 0 ? mins : 0;
 }
 // 직원 월 근무 통계: {days: 근무일수, minutes: 총 근무분(기본 실근무 + 연장)} — cellStatus 판정 재사용
@@ -1118,6 +1121,7 @@ async function commitOverride(eid, date, status, memo, ot) {
   const patternStatus = patternStatusOf(eid, y, m, d);
   memo = (memo || "").trim();
   const otEnd   = (ot && ot.end) ? ot.end : null;                 // 연장 종료시각(없으면 연장 해제)
+  const otStart = otEnd ? (ot.start || null) : null;              // 연장 시작시각(없으면 집계 시 기본 퇴근시각)
   const otBreak = otEnd ? (Number(ot.breakMin) || 0) : null;
   // 연장 없음 + 패턴과 동일 + 메모 없음 → override 불필요(삭제, 남아있던 연장도 함께 제거)
   if (!otEnd && status === patternStatus && !memo) {
@@ -1127,7 +1131,7 @@ async function commitOverride(eid, date, status, memo, ot) {
     delete state.overrides[eid + "|" + date];
   } else {
     const { data, error } = await sb.from("schedule_overrides")
-      .upsert({ employee_id: eid, date, status, memo: memo || null, ot_end: otEnd, ot_break_min: otBreak }, { onConflict: "employee_id,date" })
+      .upsert({ employee_id: eid, date, status, memo: memo || null, ot_start: otStart, ot_end: otEnd, ot_break_min: otBreak }, { onConflict: "employee_id,date" })
       .select().single();
     if (error) throw error;
     state.overrides[eid + "|" + date] = data;
@@ -1159,7 +1163,7 @@ function setRangeType(t) {
   if (otBox) {
     const isOt = t === "overtime";
     otBox.style.display = isOt ? "" : "none";
-    if (isOt) document.getElementById("rg-ot-hint").textContent = `연장 시작 = 기본 퇴근시각(현재 ${state.workCfg.end})`;
+    if (isOt) document.getElementById("rg-ot-hint").textContent = `연장 시작 기본값 = 기본 퇴근시각(현재 ${state.workCfg.end}) · 필요시 변경`;
   }
 }
 function openRangeSheet() {
@@ -1168,14 +1172,17 @@ function openRangeSheet() {
     `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
   updateRgAllLabel();
   document.getElementById("rg-reason").value = "";
+  document.getElementById("rg-ot-start").value = state.workCfg.end || "17:00";
   document.getElementById("rg-ot-end").value = "20:00";
   document.getElementById("rg-ot-break").value = 20;
   setRangeType("");   // 유형 미선택으로 시작(연장 입력칸도 숨김)
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  // 시작·종료 기본값: 보는 달이 이번 달이면 오늘(하루 지정), 아니면 그 달 1일
+  const startDef = (state.y === today.y && state.m === today.m) ? dateStr(today.y, today.m, today.d) : first;
   const s = document.getElementById("rg-start"), en = document.getElementById("rg-end");
-  s.min = first;  s.max = last;  s.value = first;   // 현재 표시 월 내로 제한
-  en.min = first; en.max = last; en.value = last;
+  s.min = first;  s.max = last;  s.value = startDef;   // 월 범위 제한(min/max) 유지
+  en.min = first; en.max = last; en.value = startDef;
   const hint = document.getElementById("rg-hint");
   hint.classList.remove("err");
   hint.textContent = `${state.y}년 ${state.m}월 내에서 지정하세요.`;
@@ -1226,14 +1233,18 @@ async function applyRange() {
   const type = rangeType;
   if (!type || !RANGE_TYPES[type]) return setErr("유형을 선택하세요.");
   const def = RANGE_TYPES[type];
-  // 연장근무: 종료시각·휴게만 입력(시작=기본 퇴근시각). 다른 유형이면 ot=null(연장 정보 해제).
+  // 연장근무: 시작·종료시각·휴게 입력(시작 기본=기본 퇴근시각). 다른 유형이면 ot=null(연장 정보 해제).
   let ot = null;
   if (type === "overtime") {
-    const otEnd = document.getElementById("rg-ot-end").value;
+    const otStart = document.getElementById("rg-ot-start").value || state.workCfg.end;
+    const otEnd   = document.getElementById("rg-ot-end").value;
     if (!otEnd) return setErr("연장 종료시각을 입력하세요.");
-    if (parseHM(otEnd) <= parseHM(state.workCfg.end))
-      return setErr(`연장 종료시각은 기본 퇴근시각(${state.workCfg.end})보다 늦어야 합니다.`);
-    ot = { end: otEnd, breakMin: Number(document.getElementById("rg-ot-break").value) || 0 };
+    if (parseHM(otEnd) <= parseHM(otStart))
+      return setErr("연장 종료시각은 시작시각보다 늦어야 합니다.");
+    const otBreak = Number(document.getElementById("rg-ot-break").value) || 0;
+    if (otBreak > parseHM(otEnd) - parseHM(otStart))
+      return setErr("연장 휴게가 연장 길이보다 깁니다.");
+    ot = { start: otStart, end: otEnd, breakMin: otBreak };
   }
   // 스케줄 memo: 근무/휴무는 사유만(빈값 허용), 특수 유형은 사유 없으면 유형명
   const memoBase = (type === "work" || type === "off") ? reason : (reason || def.label);
