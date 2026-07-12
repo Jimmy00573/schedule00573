@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>선과장 근무 스케줄</title>
+<title>시트리앙 근무 스케줄</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍊</text></svg>">
 <style>
   :root{
     --work:#22c55e; --work-bg:#dcfce7;
@@ -40,6 +41,9 @@
   .btn.pri{background:#1e293b; color:#fff; border-color:#1e293b}
   .spacer{flex:1}
   .role{font-size:12px; color:var(--sub); white-space:nowrap}
+  .brand{display:flex; align-items:center; gap:5px; font-weight:800; font-size:15px; color:var(--ink); white-space:nowrap; margin-right:2px}
+  .brand-ico{font-size:18px; line-height:1}
+  @media (max-width:560px){ .brand-name{display:none} }   /* 좁은 화면: 아이콘만 */
 
   /* 범례 */
   .legend{
@@ -353,6 +357,7 @@
 <body>
 
 <div class="topbar">
+  <div class="brand"><span class="brand-ico">🍊</span><span class="brand-name">시트리앙</span></div>
   <div class="tabs">
     <button class="tab active" id="tab-sched">스케줄</button>
     <button class="tab" id="tab-leave">대체휴무</button>
