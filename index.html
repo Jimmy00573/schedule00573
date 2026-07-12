@@ -306,6 +306,13 @@
   .lv-grp-hd{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink); padding:8px 2px 2px}
   .lv-grp-cnt{color:var(--sub); font-weight:400}
   .lv-more{width:100%; margin:4px 0 2px; padding:7px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--sub); font-size:12px; cursor:pointer; font-family:inherit}
+  /* 장부(대체휴무·연차) 검색/필터 바 */
+  .lg-filter{display:flex; flex-wrap:wrap; gap:6px; align-items:center; max-width:640px; margin:0 auto 6px; padding:0 8px}
+  .lg-filter select, .lg-filter input{font-family:inherit; font-size:13px; padding:7px 9px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--ink)}
+  .lg-filter .lg-q{flex:1 1 120px; min-width:110px}
+  .lg-filter .lg-dates{display:flex; align-items:center; gap:4px; font-size:12px; color:var(--sub)}
+  .lg-filter .lg-dates input{width:132px}
+  .lg-note{max-width:640px; margin:0 auto 6px; padding:6px 10px; font-size:12px; color:var(--sub); background:#f8fafc; border:1px solid var(--line); border-radius:8px}
   /* 회사 휴무일 관리 */
   .hol-list{max-height:40vh; overflow:auto; -webkit-overflow-scrolling:touch; margin-top:2px}
   .hol-item{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line); font-size:13px}
@@ -390,6 +397,13 @@
   </div>
   <div id="leave-body">
     <div class="msg" id="leave-msg">불러오는 중…</div>
+    <div class="lg-filter">
+      <select class="lg-emp" id="lf-emp"><option value="">전체 직원</option></select>
+      <input class="lg-q" id="lf-q" type="search" placeholder="사유·구분 검색">
+      <span class="lg-dates"><input id="lf-from" type="date"><span>~</span><input id="lf-to" type="date"></span>
+      <button class="btn" id="lf-reset">초기화</button>
+    </div>
+    <div class="lg-note" id="lf-note" style="display:none"></div>
     <div id="leave-summary"></div>
   </div>
 </div>
@@ -412,6 +426,13 @@
     </div>
     <p class="note" style="margin:6px 8px 0">부여의 <b>*</b> = 직원별 개별 부여. 관리자는 직원 이름을 펼쳐 개별 부여를 설정/해제할 수 있습니다.</p>
     <div class="msg" id="annual-msg">불러오는 중…</div>
+    <div class="lg-filter">
+      <select class="lg-emp" id="af-emp"><option value="">전체 직원</option></select>
+      <input class="lg-q" id="af-q" type="search" placeholder="사유 검색">
+      <span class="lg-dates"><input id="af-from" type="date"><span>~</span><input id="af-to" type="date"></span>
+      <button class="btn" id="af-reset">초기화</button>
+    </div>
+    <div class="lg-note" id="af-note" style="display:none"></div>
     <div id="annual-summary"></div>
   </div>
 </div>
@@ -661,6 +682,8 @@ const state = {
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
   leaveMoreExpanded: new Set(),  // 더보기 펼침 "eid|grant"/"eid|use"
+  leaveFilter: { emp: "", q: "", from: "", to: "" },   // 대체휴무 검색/필터(잔여는 불변, 내역만 좁힘)
+  annualFilter: { emp: "", q: "", from: "", to: "" },  // 연차 검색/필터
   annual: [],        // 연차 사용 기록(annual_leave_ledger) 전체 행
   annualDays: 15,    // 연차 부여(전체 공통, app_settings.annual_leave_days 폴백)
   annualExpanded: new Set(),  // 연차 펼친 직원 id
@@ -1722,6 +1745,32 @@ function ledgerLine(r) {
   </div>`;
 }
 
+// ── 장부 검색/필터 공통 (대체휴무·연차) ── 잔여·합계는 전체 기준 불변, '보이는 내역'만 좁힘.
+function ledgerRowMatch(r, f) {   // 기간(from/to) + 사유·구분(q). 대소문자 무시.
+  if (f.from && r.date < f.from) return false;
+  if (f.to   && r.date > f.to)   return false;
+  if (f.q) {
+    const hay = ((r.reason || "") + " " + (r.category || "")).toLowerCase();
+    if (!hay.includes(f.q.toLowerCase())) return false;
+  }
+  return true;
+}
+function ledgerSearching(f) { return !!(f.q || f.from || f.to); }   // 사유·기간 필터 활성(직원만이면 false)
+function fillFilterEmps(selId, emps, val) {   // 셀렉트 옵션 1회 채움 + 선택값 반영
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  if (sel.options.length <= 1)
+    sel.innerHTML = `<option value="">전체 직원</option>` + emps.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("");
+  sel.value = val || "";
+}
+function filterNote(noteId, f) {   // 사유·기간 필터 중이면 안내
+  const el = document.getElementById(noteId);
+  if (!el) return;
+  const on = ledgerSearching(f);
+  el.style.display = on ? "" : "none";
+  el.textContent = on ? "필터 적용 중 — 내역만 필터됩니다(지급·사용·잔여 합계는 전체 기준)." : "";
+}
+
 // 펼침 내역을 [지급]/[사용] 두 그룹으로. 각 최신순(date desc), 기본 10건 + 더보기.
 const LEAVE_MORE_LIMIT = 10;
 function leaveGroupsHtml(eid, rows) {
@@ -1746,24 +1795,31 @@ function leaveGroupHtml(eid, dir, label, rows) {
 }
 
 function renderLeave() {
-  const totals = leaveTotals();
-  const emps = state.employees;   // 재직, display_order
+  const totals = leaveTotals();   // 전체 기준(필터와 무관, 불변)
+  const f = state.leaveFilter;
+  fillFilterEmps("lf-emp", state.employees, f.emp);
+  filterNote("lf-note", f);
+  const searching = ledgerSearching(f);
+  const emps = state.employees.filter(e => !f.emp || String(e.id) === String(f.emp));
   let html = `<div class="lv-hd"><div class="lv-nm">직원</div><div class="lv-c">지급</div><div class="lv-c">사용</div><div class="lv-c">잔여</div></div>`;
+  let shown = 0;
   for (const e of emps) {
-    const t = totals[e.id] || { grant: 0, use: 0 };
+    const allRows = state.ledger.filter(r => String(r.employee_id) === String(e.id));
+    const rows = searching ? allRows.filter(r => ledgerRowMatch(r, f)) : allRows;
+    if (searching && !rows.length) continue;   // 검색 중 매칭 없는 직원은 숨김
+    shown++;
+    const t = totals[e.id] || { grant: 0, use: 0 };   // 합계는 전체 기준
     const bal = t.grant - t.use;
-    const open = state.leaveExpanded.has(String(e.id));
+    const open = searching || state.leaveExpanded.has(String(e.id));   // 검색 중이면 자동 펼침
     html += `<div class="lv-row" data-eid="${e.id}">
       <div class="lv-nm">${open ? "▾" : "▸"} ${esc(e.name)}</div>
       <div class="lv-c grant">${fmtDays(t.grant)}</div>
       <div class="lv-c use">${fmtDays(t.use)}</div>
       <div class="lv-c bal ${bal < 0 ? "neg" : ""}">${fmtDays(bal)}</div>
     </div>`;
-    if (open) {
-      const rows = state.ledger.filter(r => String(r.employee_id) === String(e.id));
-      html += `<div class="lv-detail">` + leaveGroupsHtml(String(e.id), rows) + `</div>`;
-    }
+    if (open) html += `<div class="lv-detail">` + leaveGroupsHtml(String(e.id), rows) + `</div>`;
   }
+  if (!shown) html += `<div class="lv-empty" style="padding:16px">조건에 맞는 내역 없음</div>`;
   document.getElementById("leave-summary").innerHTML = html;
 }
 
@@ -1865,15 +1921,25 @@ function annualLine(r) {
 function renderAnnual() {
   document.getElementById("an-grant-view").textContent = fmtDays(state.annualDays);
   document.getElementById("an-grant-input").value = state.annualDays;
-  const totals = annualTotals();
-  const emps = state.employees;   // 재직, display_order
+  const totals = annualTotals();   // 전체 기준(불변)
+  const f = state.annualFilter;
+  fillFilterEmps("af-emp", state.employees, f.emp);
+  filterNote("af-note", f);
+  const searching = ledgerSearching(f);
+  const emps = state.employees.filter(e => !f.emp || String(e.id) === String(f.emp));
   let html = `<div class="lv-hd"><div class="lv-nm">직원</div><div class="lv-c">부여</div><div class="lv-c">사용</div><div class="lv-c">잔여</div></div>`;
+  let shown = 0;
   for (const e of emps) {
-    const used = totals[e.id] || 0;
+    const allRows = state.annual.filter(r => String(r.employee_id) === String(e.id));
+    const rows = searching ? allRows.filter(r => ledgerRowMatch(r, f)) : allRows;
+    if (searching && !rows.length) continue;   // 검색 중 매칭 없는 직원 숨김
+    shown++;
+    const used = totals[e.id] || 0;   // 합계는 전체 기준
     const grant = grantOf(e);
     const indiv = e.annual_leave_days != null;   // 개별 부여 여부
     const bal = grant - used;
-    const open = state.annualExpanded.has(String(e.id));
+    const manualOpen = state.annualExpanded.has(String(e.id));
+    const open = searching || manualOpen;   // 검색 중이면 자동 펼침
     html += `<div class="lv-row" data-eid="${e.id}">
       <div class="lv-nm">${open ? "▾" : "▸"} ${esc(e.name)}</div>
       <div class="lv-c grant${indiv ? " indiv" : ""}">${fmtDays(grant)}${indiv ? "*" : ""}</div>
@@ -1881,8 +1947,8 @@ function renderAnnual() {
       <div class="lv-c bal ${bal < 0 ? "neg" : ""}">${fmtDays(bal)}</div>
     </div>`;
     if (open) {
-      const rows = state.annual.filter(r => String(r.employee_id) === String(e.id));
-      const editor = state.isAdmin ? `<div class="an-edit">
+      // 개별 부여 편집기는 수동 펼침일 때만(검색 자동펼침 땐 내역만 깔끔히)
+      const editor = (state.isAdmin && manualOpen) ? `<div class="an-edit">
         <span>개별 부여</span>
         <input class="an-emp-grant" data-eid="${e.id}" type="number" min="0" step="0.5" inputmode="decimal" value="${indiv ? Number(e.annual_leave_days) : ""}" placeholder="기본 ${fmtDays(state.annualDays)}">
         <button class="an-emp-grant-save" data-eid="${e.id}">저장</button>
@@ -1893,6 +1959,7 @@ function renderAnnual() {
         `</div>`;
     }
   }
+  if (!shown) html += `<div class="lv-empty" style="padding:16px">조건에 맞는 내역 없음</div>`;
   document.getElementById("annual-summary").innerHTML = html;
 }
 // 직원 개별 부여 저장/해제 (val: 숫자 또는 null=기본으로)
@@ -2063,6 +2130,23 @@ document.getElementById("leave-summary").addEventListener("click", (e) => {
   else state.leaveExpanded.add(eid);
   renderLeave();
 });
+
+// 장부 검색/필터 (입력은 summary 바깥 → 재렌더해도 focus 유지)
+function wireLedgerFilter(prefix, filterKey, rerender) {
+  const f = state[filterKey];
+  const g = id => document.getElementById(prefix + "-" + id);
+  g("emp").addEventListener("change",  () => { f.emp = g("emp").value;  rerender(); });
+  g("q").addEventListener("input",     () => { f.q = g("q").value.trim(); rerender(); });
+  g("from").addEventListener("change", () => { f.from = g("from").value; rerender(); });
+  g("to").addEventListener("change",   () => { f.to = g("to").value;     rerender(); });
+  g("reset").addEventListener("click", () => {
+    f.emp = ""; f.q = ""; f.from = ""; f.to = "";
+    g("emp").value = ""; g("q").value = ""; g("from").value = ""; g("to").value = "";
+    rerender();
+  });
+}
+wireLedgerFilter("lf", "leaveFilter", renderLeave);
+wireLedgerFilter("af", "annualFilter", renderAnnual);
 
 // 연차
 document.getElementById("annual-add-btn").onclick = openAnnualSheet;
