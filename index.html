@@ -79,7 +79,6 @@
   .today-crew .tc-prev .tc-title, .today-crew .tc-next .tc-title{color:var(--sub); font-weight:600}
   .today-crew .tc-date{font-weight:600; white-space:nowrap}   /* 색은 인라인(토/일/공휴일) */
   .today-crew .tc-hol{color:var(--sun); font-weight:600}
-  .today-crew .tc-off{color:var(--sub)}                  /* 휴무자는 회색 구분 */
   .today-crew .tc-none{color:var(--sub)}
   .today-crew .tc-sep{color:var(--border)}
 
@@ -87,12 +86,13 @@
   .work-summary{max-width:640px; margin:14px auto 26px; padding:0 12px}
   .work-summary .ws-title{font-size:13px; font-weight:700; color:var(--ink); margin:4px 2px 8px}
   .work-summary .ws-sub{font-size:11px; font-weight:400; color:var(--sub); margin-left:4px}
-  .ws-hd, .ws-row{display:grid; grid-template-columns:1fr 60px 120px; align-items:center; padding:7px 8px}
-  .ws-hd{font-size:12px; color:var(--sub); border-bottom:2px solid var(--border)}
-  .ws-row{border-bottom:1px solid var(--line); font-size:14px}
-  .ws-nm{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .ws-d, .ws-h{text-align:right; font-variant-numeric:tabular-nums}
-  .ws-h{font-weight:700}
+  .work-summary .ws-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  .work-summary table.ws-table{border-collapse:collapse; width:100%; min-width:600px}
+  .ws-table th, .ws-table td{padding:7px 8px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums}
+  .ws-table th{font-size:12px; color:var(--sub); font-weight:600; border-bottom:2px solid var(--border)}
+  .ws-table td{font-size:13px}
+  .ws-table th:first-child, .ws-table td:first-child{text-align:left; font-weight:600}
+  .ws-table td.neg{color:#dc2626; font-weight:700}
   /* 세팅 시트 실근무 표시 */
   .wk-calc{margin-top:14px; padding:11px; border:1px solid var(--border); border-radius:9px; background:#f8fafc; font-size:15px; font-weight:700; text-align:center; color:var(--ink)}
 
@@ -874,12 +874,11 @@ function renderTodayCrew() {
   if (!(state.y === today.y && state.m === today.m) || !state.employees.length) {
     el.innerHTML = ""; el.style.display = "none"; return;
   }
-  // 한 날의 근무자·휴무자 줄 생성. 보는 달과 다른 달(월초 어제·월말 내일)이면 생략("").
+  // 한 날의 근무자 줄 생성. 보는 달과 다른 달(월초 어제·월말 내일)이면 생략("").
   const rowFor = (label, cls, y, m, d) => {
     if (y !== state.y || m !== state.m) return "";
     const wd = weekday(y, m, d);
     const working = state.employees.filter(e => cellStatus(e, y, m, d).status !== "off");
-    const off     = state.employees.filter(e => cellStatus(e, y, m, d).status === "off");
     const holName = state.holidays[dateStr(y, m, d)];
     // 날짜(요일) 색: 공휴일·일=빨강, 토=파랑 (인라인 → 회색 위로 우선)
     const dcol = (holName || wd === 0) ? "var(--sun)" : (wd === 6 ? "var(--sat)" : "");
@@ -887,14 +886,10 @@ function renderTodayCrew() {
       + (holName ? ` <span class="tc-hol">${esc(holName)}</span>` : "");
     const workPart = working.length
       ? `근무 ${working.length}명: ${working.map(e => esc(e.name)).join(", ")}`
-      : `<span class="tc-none">근무 없음</span>`;
-    const offPart = off.length
-      ? `휴무 ${off.length}명: <span class="tc-off">${off.map(e => esc(e.name)).join(", ")}</span>`
-      : `<span class="tc-none">휴무 없음</span>`;
+      : `<span class="tc-none">전원 휴무</span>`;
     return `<div class="tc-row ${cls}">`
       + `<span class="tc-title">${label}</span> ${dateHtml} `
-      + `<span class="tc-sep">·</span> ${workPart} `
-      + `<span class="tc-sep">·</span> ${offPart}`
+      + `<span class="tc-sep">·</span> ${workPart}`
       + `</div>`;
   };
   const prev = new Date(today.y, today.m - 1, today.d - 1);
@@ -960,21 +955,37 @@ async function loadWorkCfg() {
   } catch (e) { console.warn("[workcfg] 로드 실패(기본값 사용):", e.message || e); }
   state.workCfg = cfg;
 }
-// 직원별 월 근무일수 × 1일 실근무 = 월 근무시간 (관리자 전용)
+// 월별 요약 리포트(관리자 전용): 근무일·시간·휴무(이 달) + 연차·대체휴무(누적) — 기존 함수 재사용
 function renderWorkSummary() {
   const el = document.getElementById("work-summary");
   if (!el) return;
   const emps = state.employees;
   if (!state.isAdmin || !emps.length) { el.innerHTML = ""; return; }
-  const wmin = workMinutes();
-  const cfg = state.workCfg;
-  const sub = `1일 실근무 ${fmtHM(wmin)} · ${cfg.start}~${cfg.end}, 휴게 ${Number(cfg.breakMin) || 0}분 기준`;
+  const dim = daysInMonth(state.y, state.m);
+  const lt = leaveTotals();    // 대체휴무 지급/사용(누적)
+  const at = annualTotals();   // 연차 사용(누적)
+  const sub = `근무일·시간·휴무 = ${state.m}월 / 연차·대체휴무 잔여 = 누적 · 1일 실근무 ${fmtHM(workMinutes())} 기준`;
   const rows = emps.map(e => {
-    const st = workStatOf(e, state.y, state.m);   // 기본 실근무 + 연장근무 합산
-    return `<div class="ws-row"><div class="ws-nm">${esc(e.name)}</div><div class="ws-d">${st.days}일</div><div class="ws-h">${fmtHM(st.minutes)}</div></div>`;
+    const st = workStatOf(e, state.y, state.m);   // {days, minutes} 기본 실근무 + 연장
+    const offDays = dim - st.days;                // 모든 날은 근무/휴무 → 휴무 = 그 달 일수 − 근무일
+    const aUse = at[e.id] || 0;
+    const aBal = grantOf(e) - aUse;
+    const l = lt[e.id] || { grant: 0, use: 0 };
+    const lBal = l.grant - l.use;
+    return `<tr>
+      <td>${esc(e.name)}</td>
+      <td>${st.days}일</td>
+      <td>${fmtHM(st.minutes)}</td>
+      <td>${offDays}일</td>
+      <td>${fmtDays(aUse)}일</td>
+      <td class="${aBal < 0 ? "neg" : ""}">${fmtDays(aBal)}일</td>
+      <td class="${lBal < 0 ? "neg" : ""}">${fmtDays(lBal)}일</td>
+    </tr>`;
   }).join("");
-  el.innerHTML = `<div class="ws-title">${state.m}월 근무 집계 <span class="ws-sub">${sub}</span></div>`
-    + `<div class="ws-hd"><div class="ws-nm">직원</div><div class="ws-d">근무일</div><div class="ws-h">근무시간</div></div>${rows}`;
+  el.innerHTML = `<div class="ws-title">${state.m}월 요약 리포트 <span class="ws-sub">${sub}</span></div>`
+    + `<div class="ws-scroll"><table class="ws-table"><thead><tr>`
+    + `<th>직원</th><th>근무일</th><th>근무시간</th><th>휴무</th><th>연차 사용</th><th>연차 잔여</th><th>대체휴무 잔여</th>`
+    + `</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /* 근무시간 설정 시트(관리자) */
@@ -1162,7 +1173,7 @@ async function goMonth(y, m) {
   document.getElementById("grid").innerHTML = "";
   try {
     await ensureHolidays(y);   // 그 해 공휴일 DB 보정(없으면 외부 fetch·upsert, 실패해도 무시)
-    await Promise.all([loadMonth(y, m), loadLeave()]);   // 스케줄 + 대체휴무 잔여(요약 바용)
+    await Promise.all([loadMonth(y, m), loadLeave(), loadAnnual()]);   // 스케줄 + 대체휴무·연차(요약 리포트용)
     render();
     renderHolCount();          // 공휴일 일수 표시(이번 달·올해) — fire-and-forget
   } catch (e) {
