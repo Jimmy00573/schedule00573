@@ -72,12 +72,16 @@
   .today-crew{display:flex; flex-direction:column; gap:2px;
     padding:8px 12px; background:#eff6ff; border-bottom:1px solid var(--border);
     max-width:1040px; margin:0 auto}
-  .today-crew .tc-row{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px}
-  .today-crew .tc-title{font-size:12px; font-weight:700; color:#1d4ed8; white-space:nowrap}
-  .today-crew .tc-names{font-size:12px; color:var(--ink)}
-  .today-crew .tc-names.tc-none{color:var(--sub)}
+  .today-crew .tc-row{font-size:12px; line-height:1.5}   /* 문장형 흐름, 길면 줄바꿈 */
+  .today-crew .tc-now{color:var(--ink)}                  /* 오늘 강조 */
+  .today-crew .tc-prev, .today-crew .tc-next{color:var(--sub)}   /* 어제·내일 회색 */
+  .today-crew .tc-title{font-weight:700; color:#1d4ed8}
   .today-crew .tc-prev .tc-title, .today-crew .tc-next .tc-title{color:var(--sub); font-weight:600}
-  .today-crew .tc-prev .tc-names, .today-crew .tc-next .tc-names{color:var(--sub)}
+  .today-crew .tc-date{font-weight:600; white-space:nowrap}   /* 색은 인라인(토/일/공휴일) */
+  .today-crew .tc-hol{color:var(--sun); font-weight:600}
+  .today-crew .tc-off{color:var(--sub)}                  /* 휴무자는 회색 구분 */
+  .today-crew .tc-none{color:var(--sub)}
+  .today-crew .tc-sep{color:var(--border)}
 
   /* 월 근무 집계(관리자 전용) */
   .work-summary{max-width:640px; margin:14px auto 26px; padding:0 12px}
@@ -870,14 +874,27 @@ function renderTodayCrew() {
   if (!(state.y === today.y && state.m === today.m) || !state.employees.length) {
     el.innerHTML = ""; el.style.display = "none"; return;
   }
-  // 한 날의 근무자 줄 생성. 보는 달과 다른 달(월초 어제·월말 내일)이면 생략("").
+  // 한 날의 근무자·휴무자 줄 생성. 보는 달과 다른 달(월초 어제·월말 내일)이면 생략("").
   const rowFor = (label, cls, y, m, d) => {
     if (y !== state.y || m !== state.m) return "";
+    const wd = weekday(y, m, d);
     const working = state.employees.filter(e => cellStatus(e, y, m, d).status !== "off");
-    const names = working.map(e => esc(e.name)).join(", ");
+    const off     = state.employees.filter(e => cellStatus(e, y, m, d).status === "off");
+    const holName = state.holidays[dateStr(y, m, d)];
+    // 날짜(요일) 색: 공휴일·일=빨강, 토=파랑 (인라인 → 회색 위로 우선)
+    const dcol = (holName || wd === 0) ? "var(--sun)" : (wd === 6 ? "var(--sat)" : "");
+    const dateHtml = `<span class="tc-date"${dcol ? ` style="color:${dcol}"` : ""}>${m}/${d}(${WD[wd]})</span>`
+      + (holName ? ` <span class="tc-hol">${esc(holName)}</span>` : "");
+    const workPart = working.length
+      ? `근무 ${working.length}명: ${working.map(e => esc(e.name)).join(", ")}`
+      : `<span class="tc-none">근무 없음</span>`;
+    const offPart = off.length
+      ? `휴무 ${off.length}명: <span class="tc-off">${off.map(e => esc(e.name)).join(", ")}</span>`
+      : `<span class="tc-none">휴무 없음</span>`;
     return `<div class="tc-row ${cls}">`
-      + `<span class="tc-title">${label} ${m}/${d} 근무 ${working.length}명</span>`
-      + (names ? `<span class="tc-names">${names}</span>` : `<span class="tc-names tc-none">전원 휴무</span>`)
+      + `<span class="tc-title">${label}</span> ${dateHtml} `
+      + `<span class="tc-sep">·</span> ${workPart} `
+      + `<span class="tc-sep">·</span> ${offPart}`
       + `</div>`;
   };
   const prev = new Date(today.y, today.m - 1, today.d - 1);
