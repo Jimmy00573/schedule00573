@@ -263,6 +263,8 @@
     font-size:13px; padding:7px 12px; border-radius:9px; cursor:pointer}
   .rg-type.sel{background:var(--work-bg); border-color:var(--work); color:#166534; font-weight:700}   /* 근무 계열 선택 */
   .rg-type.sel.off-type{background:#e5e7eb; border-color:#9ca3af; color:#374151}                       /* 휴무 계열 선택 */
+  .rg-type.rg-type-reset{border-style:dashed; color:var(--sub)}                                        /* 초기화(취소)는 점선 구분 */
+  .rg-type.rg-type-reset.sel{border-style:solid}
 
   /* 연차 관리 (대체휴무 lv-* 클래스 재사용) */
   #annual-body{max-width:640px; margin:0 auto; padding:12px}
@@ -510,6 +512,10 @@
       <button type="button" class="rg-type" data-t="annual">연차</button>
       <button type="button" class="rg-type" data-t="leave_use">대체휴무</button>
       <button type="button" class="rg-type" data-t="etc">경조사및기타</button>
+    </div>
+    <div class="rg-type-group">
+      <span class="rg-type-cat">취소</span>
+      <button type="button" class="rg-type rg-type-reset" data-t="reset">초기화(패턴대로)</button>
     </div>
   </div>
   <div class="row2" style="margin-top:12px">
@@ -1148,6 +1154,7 @@ const RANGE_TYPES = {
   leave_use:   { label: "대체휴무",    status: "off",  ledger: "leave_use" },
   leave_grant: { label: "대체근무",    status: "work", ledger: "leave_grant" },
   etc:         { label: "경조사및기타", status: "off",  ledger: "etc" },
+  reset:       { label: "초기화(패턴대로)", status: "off", ledger: "none", reset: true },   // override·장부 삭제 → 패턴 복귀
 };
 let rangeType = "";   // 선택된 유형(빈값=미선택)
 function setRangeType(t) {
@@ -1282,9 +1289,12 @@ async function applyRange() {
     if (useCnt)   parts.push(`대체휴무 ${useCnt}일`);
     if (grantCnt) parts.push(`대체근무 ${grantCnt}일`);
     if (etcCnt)   parts.push(`경조사및기타 ${etcCnt}일`);
+    const action = def.reset
+      ? `기존 기록을 취소하고 스케줄을 패턴대로 되돌릴까요?`
+      : `기존 기록을 취소(환원)하고 '${def.label}'(으)로 변경할까요?`;
     const ok = confirm(
       `선택 기간에 이미 기록이 있습니다(${parts.join(", ")}).\n` +
-      `기존 기록을 취소(환원)하고 '${def.label}'(으)로 변경할까요?\n` +
+      `${action}\n` +
       `※ 수동 입력 기록도 함께 삭제됩니다.`
     );
     if (!ok) return;   // 취소 → 적용 중단
@@ -1300,12 +1310,18 @@ async function applyRange() {
       sb.from("etc_leave_ledger").delete().in("employee_id", empIds).in("date", dates),
     ]);
     for (const d of dels) if (d.error) throw d.error;
-    // 1) 스케줄 override (기존 로직) — 유형의 근무/휴무 status로
-    await Promise.all(targets.map(t => {
-      const ov = state.overrides[t.eid + "|" + t.date];
-      const memo = memoBase || (ov ? ov.memo : "");
-      return commitOverride(t.eid, t.date, def.status, memo, ot);   // ot=null이면 연장 정보 초기화
-    }));
+    // 1) 스케줄: 초기화면 override 삭제(패턴대로 복귀), 아니면 유형 status로 커밋
+    if (def.reset) {
+      const delOv = await sb.from("schedule_overrides").delete().in("employee_id", empIds).in("date", dates);
+      if (delOv.error) throw delOv.error;
+      targets.forEach(t => { delete state.overrides[t.eid + "|" + t.date]; });
+    } else {
+      await Promise.all(targets.map(t => {
+        const ov = state.overrides[t.eid + "|" + t.date];
+        const memo = memoBase || (ov ? ov.memo : "");
+        return commitOverride(t.eid, t.date, def.status, memo, ot);   // ot=null이면 연장 정보 초기화
+      }));
+    }
     // 2) 유형별 장부 자동 기록 (중복 방지). ★취소·수정 동기화는 다음 단계(2단계-B) — 지금은 입력 시 기록만.
     if (def.ledger === "annual")
       await ledgerInsertDedup("annual_leave_ledger", empIds, dates, {},
