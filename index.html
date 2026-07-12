@@ -156,6 +156,7 @@
   td.cell.tcol::after{content:""; position:absolute; inset:0; background:rgba(59,130,246,.09); pointer-events:none}
   td.cell.tcol > *{position:relative; z-index:1}   /* 메모 점·띠 라벨을 틴트 위로 */
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
+  td.cell .tadj{font-size:9px; line-height:1.1; font-weight:800; color:#c2410c; letter-spacing:-0.3px}   /* 시간 조정 축약(5-14) */
   /* 집계(하단 고정) */
   tfoot td{
     position:sticky; bottom:0; z-index:6; background:#f8fafc; text-align:center;
@@ -581,20 +582,19 @@
     </div>
   </div>
   <div id="rg-ot" style="display:none">
-    <label class="lbl">조기 출근시각 (선택 · 휴게 없음)</label>
-    <input id="rg-ot-early" type="time">
     <div class="row2" style="margin-top:8px">
       <div style="flex:1">
-        <label class="lbl">연장 시작시각</label>
-        <input id="rg-ot-start" type="time" value="17:00">
+        <label class="lbl">출근 시각</label>
+        <input id="rg-day-start" type="time">
       </div>
       <div style="flex:1">
-        <label class="lbl">연장 종료시각 (선택)</label>
-        <input id="rg-ot-end" type="time">
+        <label class="lbl">퇴근 시각</label>
+        <input id="rg-day-end" type="time">
       </div>
     </div>
-    <label class="lbl">연장 휴게(분)</label>
-    <input id="rg-ot-break" type="number" min="0" step="5" value="20" inputmode="numeric">
+    <label class="lbl">휴게(분)</label>
+    <input id="rg-day-break" type="number" min="0" step="5" inputmode="numeric">
+    <div class="wk-calc" id="rg-day-calc" style="margin-top:8px">실근무 —</div>
     <div class="hint" id="rg-ot-hint"></div>
   </div>
   <label class="lbl">사유 (선택)</label>
@@ -821,15 +821,23 @@ function render() {
     let row = `<tr><td class="name" data-eid="${emp.id}"><div class="nm-name">${esc(emp.name)}</div><div class="wk-off" title="${woTitle}">${woHtml}</div></td>`;
     for (let d=1; d<=dim; d++){
       const cs = cells[d-1], sp = span[d-1];
+      const ov = state.overrides[emp.id + "|" + dateStr(y,m,d)];
+      const adj = (ov && ov.day_start && ov.day_end) ? ov : null;   // 시간 조정된 날
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
       if (cs.isException) cls += " exc";
       if (isToday(y,m,d)) cls += " tcol";
       if (sp) cls += " span span-" + sp;
+      const titleText = adj
+        ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}` + (cs.memo ? ` · ${cs.memo}` : "")
+        : (cs.memo || "");
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
-        + (cs.memo ? ` data-memo="${esc(cs.memo)}" title="${esc(cs.memo)}"` : "");
-      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움(연결) / 단일 memo: 점
+        + (cs.memo ? ` data-memo="${esc(cs.memo)}"` : "")
+        + (titleText ? ` title="${esc(titleText)}"` : "");
+      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 단일 memo: 점
       const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
-        : sp ? "" : (cs.memo ? `<span class="memo"></span>` : "");
+        : sp ? ""
+        : adj ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+        : (cs.memo ? `<span class="memo"></span>` : "");
       row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
     tbody += row + `</tr>`;
@@ -916,28 +924,23 @@ function workMinutes(cfg) {
   const mins = parseHM(cfg.end) - parseHM(cfg.start) - (Number(cfg.breakMin) || 0);
   return mins > 0 ? mins : 0;
 }
-// 그 날 연장근무 분 = (연장종료 − 연장시작) − 연장휴게. ot_start 없으면 기본 퇴근시각(하위호환). 음수는 0.
-function otMinutes(ov) {
-  if (!ov || !ov.ot_end) return 0;
-  const start = ov.ot_start || state.workCfg.end;
-  const mins = parseHM(ov.ot_end) - parseHM(start) - (Number(ov.ot_break_min) || 0);
-  return mins > 0 ? mins : 0;
+const hh = s => Number(String(s).slice(0, 2));   // "05:00" → 5 (달력 축약 표시용)
+// 그 날 실근무 분: override에 시간 지정(day_start/day_end) 있으면 그걸로, 없으면 기본 세팅. 음수는 0.
+function dayMinutes(ov) {
+  if (ov && ov.day_start && ov.day_end) {
+    const brk = (ov.day_break_min != null) ? Number(ov.day_break_min) : (Number(state.workCfg.breakMin) || 0);
+    const mins = parseHM(ov.day_end) - parseHM(ov.day_start) - brk;
+    return mins > 0 ? mins : 0;
+  }
+  return workMinutes();   // 조정 없는 날 = 기본 세팅
 }
-// 그 날 조기 출근 분 = 기본출근 − 조기출근(휴게 없음). early_start 없으면 0(하위호환). 음수는 0.
-function earlyMinutes(ov) {
-  if (!ov || !ov.early_start) return 0;
-  const mins = parseHM(state.workCfg.start) - parseHM(ov.early_start);
-  return mins > 0 ? mins : 0;
-}
-// 직원 월 근무 통계: {days: 근무일수, minutes: 총 근무분(기본 실근무 + 조기 + 연장)} — cellStatus 판정 재사용
+// 직원 월 근무 통계: {days: 근무일수, minutes: 총 실근무분(그 날 지정시각 우선, 없으면 기본)} — cellStatus 판정 재사용
 function workStatOf(emp, y, m) {
-  const wmin = workMinutes();
   let days = 0, minutes = 0, dim = daysInMonth(y, m);
   for (let d = 1; d <= dim; d++) {
     if (cellStatus(emp, y, m, d).status === "off") continue;   // 휴무 제외
     days++;
-    const ov = state.overrides[emp.id + "|" + dateStr(y, m, d)];
-    minutes += wmin + earlyMinutes(ov) + otMinutes(ov);   // 기본 + 조기 + 연장
+    minutes += dayMinutes(state.overrides[emp.id + "|" + dateStr(y, m, d)]);
   }
   return { days, minutes };
 }
@@ -1294,9 +1297,13 @@ function openEditSheet(eid, date, name) {
   const emp = state.employees.find(e => String(e.id) === String(eid));
   if (!emp) return;
   const cs = cellStatus(emp, y, m, d);
+  const ov = state.overrides[eid + "|" + date];
   document.getElementById("edit-title").textContent = name;
   document.getElementById("edit-date").textContent = `${date} (${WD[weekday(y,m,d)]})`;
-  document.getElementById("edit-status").textContent = `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
+  const adj = (ov && ov.day_start && ov.day_end) ? ov : null;
+  document.getElementById("edit-status").textContent = adj
+    ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
+    : `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
   document.getElementById("edit-memo").textContent = cs.memo || "—";
   document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
   openSheetEl("edit-sheet");
@@ -1307,23 +1314,26 @@ function patternStatusOf(eid, y, m, d) {
   return pat ? (pat.off_weekdays.includes(weekday(y, m, d)) ? "off" : "work") : "work";
 }
 // override 커밋(단일·일괄 공용): 패턴과 같고 메모 없으면 삭제, 아니면 upsert. 로컬 state.overrides 갱신.
-async function commitOverride(eid, date, status, memo, ot) {
+async function commitOverride(eid, date, status, memo, adj) {
   const [y, m, d] = date.split("-").map(Number);
   const patternStatus = patternStatusOf(eid, y, m, d);
   memo = (memo || "").trim();
-  const otEnd   = (ot && ot.end) ? ot.end : null;                 // 연장 종료시각(없으면 연장 해제)
-  const otStart = otEnd ? (ot.start || null) : null;              // 연장 시작시각(없으면 집계 시 기본 퇴근시각)
-  const otBreak = otEnd ? (Number(ot.breakMin) || 0) : null;
-  const earlyStart = (ot && ot.early) ? ot.early : null;         // 조기 출근시각(없으면 조기 없음, 휴게 없음)
-  // 조기·연장 없음 + 패턴과 동일 + 메모 없음 → override 불필요(삭제, 남아있던 시간조정도 함께 제거)
-  if (!otEnd && !earlyStart && status === patternStatus && !memo) {
+  // 시간 조정: 그 날 출근/퇴근/휴게 직접 지정. 없으면 전부 null(기본 세팅으로 집계).
+  const hasAdj = !!(adj && adj.start && adj.end);
+  const dStart = hasAdj ? adj.start : null;
+  const dEnd   = hasAdj ? adj.end   : null;
+  const dBreak = hasAdj ? (Number(adj.breakMin) || 0) : null;
+  // 시간조정 없음 + 패턴과 동일 + 메모 없음 → override 불필요(삭제, 남아있던 시간조정도 함께 제거)
+  if (!hasAdj && status === patternStatus && !memo) {
     const { error } = await sb.from("schedule_overrides").delete()
       .eq("employee_id", eid).eq("date", date);
     if (error) throw error;
     delete state.overrides[eid + "|" + date];
   } else {
     const { data, error } = await sb.from("schedule_overrides")
-      .upsert({ employee_id: eid, date, status, memo: memo || null, early_start: earlyStart, ot_start: otStart, ot_end: otEnd, ot_break_min: otBreak }, { onConflict: "employee_id,date" })
+      .upsert({ employee_id: eid, date, status, memo: memo || null,
+        day_start: dStart, day_end: dEnd, day_break_min: dBreak,
+        early_start: null, ot_start: null, ot_end: null, ot_break_min: null }, { onConflict: "employee_id,date" })   // 옛 컬럼은 사용 안 함 → NULL
       .select().single();
     if (error) throw error;
     state.overrides[eid + "|" + date] = data;
@@ -1351,13 +1361,26 @@ function setRangeType(t) {
     b.classList.toggle("sel", sel);
     b.classList.toggle("off-type", sel && def && def.status === "off");   // 휴무 계열은 회색 강조
   });
-  // 연장근무 유형일 때만 연장 입력칸(종료시각·휴게) 노출
+  // 시간 조정 유형일 때만 출근/퇴근/휴게 입력칸 노출
   const otBox = document.getElementById("rg-ot");
   if (otBox) {
     const isOt = t === "overtime";
     otBox.style.display = isOt ? "" : "none";
-    if (isOt) document.getElementById("rg-ot-hint").textContent = `조기 출근 = 기본 출근(${state.workCfg.start})보다 이른 시각(휴게 없음) · 연장 = 기본 퇴근(${state.workCfg.end}) 이후 · 둘 중 하나 이상 입력`;
+    if (isOt) {
+      document.getElementById("rg-ot-hint").textContent = `이 날의 출근·퇴근·휴게를 직접 지정합니다. 실근무 = (퇴근 − 출근) − 휴게. 미조정 시 기본(${state.workCfg.start}~${state.workCfg.end}).`;
+      updateDayCalc();
+    }
   }
+}
+// 시간 조정 입력의 실근무 실시간 계산
+function updateDayCalc() {
+  const el = document.getElementById("rg-day-calc");
+  if (!el) return;
+  const s = document.getElementById("rg-day-start").value;
+  const e = document.getElementById("rg-day-end").value;
+  const b = Number(document.getElementById("rg-day-break").value) || 0;
+  if (!s || !e || parseHM(e) <= parseHM(s)) { el.textContent = "실근무 —"; return; }
+  el.textContent = `실근무 ${fmtHM(Math.max(0, parseHM(e) - parseHM(s) - b))}`;
 }
 function openRangeSheet() {
   const box = document.getElementById("rg-emp");
@@ -1365,10 +1388,9 @@ function openRangeSheet() {
     `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
   updateRgAllLabel();
   document.getElementById("rg-reason").value = "";
-  document.getElementById("rg-ot-early").value = "";   // 조기·연장 모두 기본 미입력
-  document.getElementById("rg-ot-start").value = state.workCfg.end || "17:00";
-  document.getElementById("rg-ot-end").value = "";
-  document.getElementById("rg-ot-break").value = 20;
+  document.getElementById("rg-day-start").value = state.workCfg.start || "07:30";   // 기본 세팅으로 시작
+  document.getElementById("rg-day-end").value   = state.workCfg.end || "17:00";
+  document.getElementById("rg-day-break").value = Number(state.workCfg.breakMin) || 0;
   setRangeType("");   // 유형 미선택으로 시작(연장 입력칸도 숨김)
   const first = dateStr(state.y, state.m, 1);
   const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
@@ -1427,21 +1449,16 @@ async function applyRange() {
   const type = rangeType;
   if (!type || !RANGE_TYPES[type]) return setErr("유형을 선택하세요.");
   const def = RANGE_TYPES[type];
-  // 시간 조정: 조기 출근(휴게 없음) + 연장(시작/종료/휴게). 둘 중 하나 이상. 다른 유형이면 ot=null(전부 해제).
-  let ot = null;
+  // 시간 조정: 그 날 출근/퇴근/휴게 직접 지정(조기·연장·일찍퇴근 전부 커버). 다른 유형이면 adj=null(전부 해제).
+  let adj = null;
   if (type === "overtime") {
-    const early   = document.getElementById("rg-ot-early").value;   // 빈값 = 조기 없음
-    const otEnd   = document.getElementById("rg-ot-end").value;     // 빈값 = 연장 없음
-    const otStart = document.getElementById("rg-ot-start").value || state.workCfg.end;
-    const otBreak = Number(document.getElementById("rg-ot-break").value) || 0;
-    if (early && parseHM(early) >= parseHM(state.workCfg.start))
-      return setErr(`조기 출근은 기본 출근시각(${state.workCfg.start})보다 일러야 합니다.`);
-    if (otEnd) {
-      if (parseHM(otEnd) <= parseHM(otStart)) return setErr("연장 종료시각은 시작시각보다 늦어야 합니다.");
-      if (otBreak > parseHM(otEnd) - parseHM(otStart)) return setErr("연장 휴게가 연장 길이보다 깁니다.");
-    }
-    if (!early && !otEnd) return setErr("조기 출근 또는 연장(종료시각) 중 하나는 입력하세요.");
-    ot = { early: early || null, start: otStart, end: otEnd || null, breakMin: otBreak };
+    const start = document.getElementById("rg-day-start").value;
+    const end   = document.getElementById("rg-day-end").value;
+    const brk   = Number(document.getElementById("rg-day-break").value) || 0;
+    if (!start || !end) return setErr("출근·퇴근 시각을 입력하세요.");
+    if (parseHM(end) <= parseHM(start)) return setErr("퇴근 시각은 출근 시각보다 늦어야 합니다.");
+    if (brk > parseHM(end) - parseHM(start)) return setErr("휴게가 근무 길이보다 깁니다.");
+    adj = { start, end, breakMin: brk };
   }
   // 스케줄 memo: 근무/휴무는 사유만(빈값 허용), 특수 유형은 사유 없으면 유형명
   const memoBase = (type === "work" || type === "off") ? reason : (reason || def.label);
@@ -1509,7 +1526,7 @@ async function applyRange() {
       await Promise.all(targets.map(t => {
         const ov = state.overrides[t.eid + "|" + t.date];
         const memo = memoBase || (ov ? ov.memo : "");
-        return commitOverride(t.eid, t.date, def.status, memo, ot);   // ot=null이면 연장 정보 초기화
+        return commitOverride(t.eid, t.date, def.status, memo, adj);   // adj=null이면 시간조정 초기화
       }));
     }
     // 2) 유형별 장부 자동 기록 (중복 방지). ★취소·수정 동기화는 다음 단계(2단계-B) — 지금은 입력 시 기록만.
@@ -2261,6 +2278,8 @@ document.getElementById("rg-start").addEventListener("change", (e) => {   // 시
   en.min = e.target.value;      // 종료 < 시작 방지
   en.value = e.target.value;
 });
+["rg-day-start", "rg-day-end", "rg-day-break"].forEach(id =>   // 시간 조정 실근무 실시간 계산
+  document.getElementById(id).addEventListener("input", updateDayCalc));
 
 // 회사 자체 휴무일
 document.getElementById("hol-btn").onclick = openHolSheet;
