@@ -301,6 +301,11 @@
   .lv-days.grant{color:#16a34a} .lv-days.use{color:#dc2626}
   .lv-del{border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:6px; font-size:11px; padding:5px 8px; cursor:pointer; flex:0 0 auto; font-family:inherit}
   #lv-emp, #lv-cat{width:100%}
+  /* 대체휴무 내역: 지급/사용 그룹 + 더보기 */
+  .lv-grp + .lv-grp{border-top:1px dashed var(--border); margin-top:4px}
+  .lv-grp-hd{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink); padding:8px 2px 2px}
+  .lv-grp-cnt{color:var(--sub); font-weight:400}
+  .lv-more{width:100%; margin:4px 0 2px; padding:7px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--sub); font-size:12px; cursor:pointer; font-family:inherit}
 
   /* 직원별 휴무 종합(조회 전용) */
   #crew-body{max-height:calc(100vh - 180px); overflow:auto; -webkit-overflow-scrolling:touch}
@@ -630,6 +635,7 @@ const state = {
   workCfg: { start: "07:30", end: "17:00", breakMin: 100 },   // 근무시간 세팅(app_settings 폴백 기본값)
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
+  leaveMoreExpanded: new Set(),  // 더보기 펼침 "eid|grant"/"eid|use"
   annual: [],        // 연차 사용 기록(annual_leave_ledger) 전체 행
   annualDays: 15,    // 연차 부여(전체 공통, app_settings.annual_leave_days 폴백)
   annualExpanded: new Set(),  // 연차 펼친 직원 id
@@ -1619,6 +1625,29 @@ function ledgerLine(r) {
   </div>`;
 }
 
+// 펼침 내역을 [지급]/[사용] 두 그룹으로. 각 최신순(date desc), 기본 10건 + 더보기.
+const LEAVE_MORE_LIMIT = 10;
+function leaveGroupsHtml(eid, rows) {
+  return leaveGroupHtml(eid, "grant", "지급", rows.filter(r => r.direction === "grant"))
+       + leaveGroupHtml(eid, "use",   "사용", rows.filter(r => r.direction === "use"));
+}
+function leaveGroupHtml(eid, dir, label, rows) {
+  const sum = rows.reduce((s, r) => s + (Number(r.days) || 0), 0);
+  const sorted = rows.slice().sort((a, b) => a.date < b.date ? 1 : (a.date > b.date ? -1 : 0));   // 최신순(동일 날짜는 기존 순서 유지)
+  const showAll = state.leaveMoreExpanded.has(eid + "|" + dir);
+  const shown = showAll ? sorted : sorted.slice(0, LEAVE_MORE_LIMIT);
+  let h = `<div class="lv-grp"><div class="lv-grp-hd"><span class="lb ${dir}">${label}</span> <b>${fmtDays(sum)}일</b> <span class="lv-grp-cnt">(${rows.length}건)</span></div>`;
+  if (!rows.length) {
+    h += `<div class="lv-empty">없음</div>`;
+  } else {
+    h += shown.map(ledgerLine).join("");
+    const extra = rows.length - shown.length;
+    if (extra > 0)          h += `<button class="lv-more" data-eid="${eid}" data-dir="${dir}">더보기 (${extra}건)</button>`;
+    else if (showAll && rows.length > LEAVE_MORE_LIMIT) h += `<button class="lv-more" data-eid="${eid}" data-dir="${dir}">접기</button>`;
+  }
+  return h + `</div>`;
+}
+
 function renderLeave() {
   const totals = leaveTotals();
   const emps = state.employees;   // 재직, display_order
@@ -1635,9 +1664,7 @@ function renderLeave() {
     </div>`;
     if (open) {
       const rows = state.ledger.filter(r => String(r.employee_id) === String(e.id));
-      html += `<div class="lv-detail">` +
-        (rows.length ? rows.map(ledgerLine).join("") : `<div class="lv-empty">내역 없음</div>`) +
-        `</div>`;
+      html += `<div class="lv-detail">` + leaveGroupsHtml(String(e.id), rows) + `</div>`;
     }
   }
   document.getElementById("leave-summary").innerHTML = html;
@@ -1924,6 +1951,14 @@ document.getElementById("lv-save").onclick = saveLeave;
 document.getElementById("leave-summary").addEventListener("click", (e) => {
   const del = e.target.closest(".lv-del");
   if (del) { deleteLeave(del.dataset.id); return; }
+  const more = e.target.closest(".lv-more");
+  if (more) {
+    const key = more.dataset.eid + "|" + more.dataset.dir;
+    if (state.leaveMoreExpanded.has(key)) state.leaveMoreExpanded.delete(key);
+    else state.leaveMoreExpanded.add(key);
+    renderLeave();
+    return;
+  }
   const row = e.target.closest(".lv-row");
   if (!row) return;
   const eid = row.dataset.eid;
