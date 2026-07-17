@@ -155,6 +155,17 @@
   td.cell.tcol{box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
   td.cell.tcol::after{content:""; position:absolute; inset:0; background:rgba(59,130,246,.09); pointer-events:none}
   td.cell.tcol > *{position:relative; z-index:1}   /* 메모 점·띠 라벨을 틴트 위로 */
+  /* 전체 공지 이벤트 컬럼(옅은 배경 띠 + 라벨 행) — 근무 표시 안 가리게 tcol 패턴 재사용 */
+  td.cell.ecol{box-shadow:inset 2px 0 0 #fcd34d, inset -2px 0 0 #fcd34d}
+  td.cell.ecol::after{content:""; position:absolute; inset:0; background:rgba(245,158,11,.08); pointer-events:none}
+  td.cell.ecol > *{position:relative; z-index:1}
+  thead th.ecol{background:#fffbeb}
+  thead th.evth{cursor:pointer}
+  tfoot td.ecol{box-shadow:inset 2px 0 0 #fcd34d, inset -2px 0 0 #fcd34d}
+  .evt-row th{padding:1px 2px; border-bottom:1px solid var(--line); background:#fff; vertical-align:top; cursor:pointer}
+  .evt-row th.ecol{background:#fffbeb}
+  .evt-row th.evt-corner{background:#fff; text-align:right; font-size:10px; color:var(--sub); padding-right:5px; cursor:default}
+  .evt-chip{display:block; max-width:100%; font-size:9px; line-height:1.25; padding:1px 3px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700}
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
   td.cell .tadj{font-size:9px; line-height:1.1; font-weight:800; color:#c2410c; letter-spacing:-0.3px}   /* 시간 조정 축약(5-14) */
   /* 집계(하단 고정) */
@@ -637,6 +648,39 @@
   <button class="close" id="hol-close">닫기</button>
 </div>
 
+<!-- 전체 공지 이벤트 (회식·워크숍 등) — 근무와 무관한 날짜 전체 공지 -->
+<div class="sheet" id="evt-sheet">
+  <h3 id="evt-title">전체 공지</h3>
+  <div class="hint" id="evt-dlabel"></div>
+  <div id="evt-list" class="hol-list"></div>
+  <div id="evt-form" style="display:none">
+    <div class="row2" style="margin-top:10px">
+      <div style="flex:1.6"><label class="lbl">제목 *</label><input id="evt-f-title" type="text" placeholder="예) 전체 회식"></div>
+      <div style="flex:1"><label class="lbl">시간</label><input id="evt-f-time" type="time"></div>
+    </div>
+    <div class="row2" style="margin-top:8px">
+      <div style="flex:1.6"><label class="lbl">장소</label><input id="evt-f-place" type="text" placeholder="(선택)"></div>
+      <div style="flex:1"><label class="lbl">색</label>
+        <select id="evt-f-color">
+          <option value="#f59e0b">주황</option>
+          <option value="#3b82f6">파랑</option>
+          <option value="#10b981">초록</option>
+          <option value="#ef4444">빨강</option>
+          <option value="#8b5cf6">보라</option>
+        </select>
+      </div>
+    </div>
+    <label class="lbl">메모</label><input id="evt-f-memo" type="text" placeholder="(선택)">
+    <div class="hint err" id="evt-msg"></div>
+    <div class="row2">
+      <button class="btn2 ghost" id="evt-form-cancel">취소</button>
+      <button class="btn2 pri" id="evt-save">저장</button>
+    </div>
+  </div>
+  <button class="btn2 pri" id="evt-add-btn" style="width:100%;margin-top:10px;display:none">+ 공지 추가</button>
+  <button class="close" id="evt-close">닫기</button>
+</div>
+
 <!-- 직원 관리 모달 -->
 <div class="modal" id="emp-modal">
   <div class="modal-hd"><h3>직원 관리</h3><button class="x" id="emp-close">✕</button></div>
@@ -695,6 +739,7 @@ const state = {
   patterns: {},   // employee_id -> pattern row
   overrides: {},  // "employee_id|YYYY-MM-DD" -> override row
   holidays: {},   // "YYYY-MM-DD" -> 공휴일 이름 (헤더 표시 전용, 자동 휴무 아님)
+  events: {},     // "YYYY-MM-DD" -> [schedule_events 행] (전체 공지, 근무와 무관한 표시 전용)
   workCfg: { start: "07:30", end: "17:00", breakMin: 100 },   // 근무시간 세팅(app_settings 폴백 기본값)
   ledger: [],     // 대체휴무 장부 전체 행
   leaveExpanded: new Set(),  // 펼친 직원 id
@@ -713,11 +758,13 @@ async function loadMonth(y, m) {
   const ym = ymStr(y,m);
   const first = dateStr(y,m,1);
   const last  = dateStr(y,m,daysInMonth(y,m));
-  const [emp, pat, ovr, hol] = await Promise.all([
+  const [emp, pat, ovr, hol, evt] = await Promise.all([
     sb.from("employees").select("*").order("display_order"),
     sb.from("monthly_patterns").select("*").eq("month", ym),
     sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
     sb.from("holidays").select("date,name").gte("date", first).lte("date", last),
+    sb.from("schedule_events").select("*").gte("date", first).lte("date", last)
+      .order("event_time", { ascending: true }).order("created_at", { ascending: true }),
   ]);
   if (emp.error) throw emp.error;
   if (pat.error) throw pat.error;
@@ -732,6 +779,21 @@ async function loadMonth(y, m) {
   state.holidays = {};   // 공휴일 조회 실패는 무시(표시만 없음, 스케줄은 정상 동작)
   if (hol.error) console.warn("[holidays] 조회 실패(무시):", hol.error.message);
   else (hol.data || []).forEach(h => { state.holidays[h.date] = h.name; });
+  state.events = {};   // 전체 공지 조회 실패도 무시(표시만 없음)
+  if (evt.error) console.warn("[events] 조회 실패(무시):", evt.error.message);
+  else (evt.data || []).forEach(ev => { if (!state.events[ev.date]) state.events[ev.date] = []; state.events[ev.date].push(ev); });
+}
+
+// 전체 공지만 다시 로드(등록/수정/삭제 후 경량 갱신) — 근무 데이터는 건드리지 않음
+async function reloadEvents() {
+  const first = dateStr(state.y, state.m, 1);
+  const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  const { data, error } = await sb.from("schedule_events").select("*")
+    .gte("date", first).lte("date", last)
+    .order("event_time", { ascending: true }).order("created_at", { ascending: true });
+  state.events = {};
+  if (error) { console.warn("[events] 재조회 실패:", error.message); return; }
+  (data || []).forEach(ev => { if (!state.events[ev.date]) state.events[ev.date] = []; state.events[ev.date].push(ev); });
 }
 
 /* ── 셀 상태 계산 ──
@@ -771,19 +833,36 @@ function render() {
   }
   document.getElementById("grid-msg").style.display = "none";
 
-  // 헤더
+  // 헤더 (날짜 행 + 전체 공지 라벨 행)
+  const hasEvt = ds => Array.isArray(state.events[ds]) && state.events[ds].length > 0;
+  const monthHasEvt = Object.keys(state.events).some(ds => hasEvt(ds));
   let thead = `<tr><th class="corner">직원</th>`;
+  let evtRow = `<tr class="evt-row"><th class="evt-corner">공지</th>`;
   for (let d=1; d<=dim; d++){
+    const ds = dateStr(y,m,d);
     const wd = weekday(y,m,d);
-    const holName = state.holidays[dateStr(y,m,d)];
-    let cls = (wd===0?"sun":wd===6?"sat":"");
+    const holName = state.holidays[ds];
+    let cls = (wd===0?"sun":wd===6?"sat":"") + " evth";
     if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
     if (isToday(y,m,d)) cls += " today";
+    if (hasEvt(ds)) cls += " ecol";
     const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";   // 긴 대체공휴일명 축약(나머지는 CSS 말줄임)
     const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
-    thead += `<th class="${cls.trim()}" data-date="${dateStr(y,m,d)}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
+    thead += `<th class="${cls.trim()}" data-date="${ds}" data-evt-date="${ds}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
+    // 이벤트 라벨 셀: 첫 이벤트 제목(+N), 색은 이벤트 color
+    const evs = state.events[ds] || [];
+    let chip = "";
+    if (evs.length){
+      const first = evs[0];
+      const more = evs.length > 1 ? ` +${evs.length-1}` : "";
+      const col = first.color || "#f59e0b";
+      chip = `<span class="evt-chip" style="background:${esc(col)}22;color:${esc(col)}" title="${esc(evs.map(e=>e.title).join(", "))}">${esc(first.title)}${more}</span>`;
+    }
+    evtRow += `<th class="${hasEvt(ds) ? "ecol" : ""}" data-evt-date="${ds}">${chip}</th>`;
   }
   thead += `</tr>`;
+  evtRow += `</tr>`;
+  if (monthHasEvt) thead += evtRow;   // 공지 있는 달만 라벨 행 표시(없으면 날짜 헤더 클릭으로 등록)
 
   // 본문
   let tbody = "";
@@ -826,6 +905,7 @@ function render() {
       let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
       if (cs.isException) cls += " exc";
       if (isToday(y,m,d)) cls += " tcol";
+      if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
       if (sp) cls += " span span-" + sp;
       const titleText = adj
         ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}` + (cs.memo ? ` · ${cs.memo}` : "")
@@ -851,9 +931,10 @@ function render() {
     for (const emp of state.employees){
       (cellStatus(emp,y,m,d).status==="off") ? o++ : w++;
     }
-    const t = isToday(y,m,d) ? " tcol" : "";
-    workRow += `<td class="${t}">${w}</td>`;
-    offRow  += `<td class="${t}">${o}</td>`;
+    let t = isToday(y,m,d) ? " tcol" : "";
+    if (hasEvt(dateStr(y,m,d))) t += " ecol";
+    workRow += `<td class="${t.trim()}">${w}</td>`;
+    offRow  += `<td class="${t.trim()}">${o}</td>`;
   }
   workRow += `</tr>`; offRow += `</tr>`;
 
@@ -1179,6 +1260,112 @@ async function deleteHoliday(date) {
     await loadMonth(state.y, state.m); render();
   } catch (e) {
     msg.textContent = "삭제 실패: " + (e.message || e); msg.classList.add("err");
+  }
+}
+
+/* ── 전체 공지 이벤트(관리자 등록/수정/삭제, 모두 조회) — 근무/집계/장부와 완전 분리 ── */
+let _evtDate = null, _evtEditId = null;
+function openEventPopup(date) {
+  _evtDate = date; _evtEditId = null;
+  const [yy, mm, dd] = date.split("-").map(Number);
+  document.getElementById("evt-dlabel").textContent = `${yy}년 ${mm}월 ${dd}일 (${WD[weekday(yy, mm, dd)]})`;
+  document.getElementById("evt-add-btn").style.display = state.isAdmin ? "" : "none";
+  renderEvtList();
+  _evtHideForm();
+  openSheetEl("evt-sheet");
+}
+function renderEvtList() {
+  const box = document.getElementById("evt-list");
+  const evs = state.events[_evtDate] || [];
+  if (!evs.length) { box.innerHTML = `<div class="hol-empty" style="color:var(--sub);padding:10px 4px;font-size:13px">등록된 공지가 없습니다.</div>`; return; }
+  box.innerHTML = evs.map(ev => {
+    const col = ev.color || "#f59e0b";
+    const timeStr = ev.event_time ? String(ev.event_time).slice(0, 5) : "";
+    const meta = [timeStr, ev.place].filter(Boolean).join(" · ");
+    const memoHtml = ev.memo ? `<div style="font-size:12px;color:var(--sub);margin-top:2px;word-break:break-word">${esc(ev.memo)}</div>` : "";
+    const adminBtns = state.isAdmin
+      ? `<button class="hol-del" data-edit="${ev.id}" style="border-color:#bfdbfe;color:#2563eb">수정</button><button class="hol-del" data-del="${ev.id}">삭제</button>`
+      : "";
+    return `<div class="hol-item" style="align-items:flex-start">`
+      + `<span style="flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:${esc(col)};margin-top:5px"></span>`
+      + `<div style="flex:1"><div style="font-weight:600">${esc(ev.title)}</div>`
+      + (meta ? `<div style="font-size:12px;color:var(--sub)">${esc(meta)}</div>` : "")
+      + memoHtml + `</div>${adminBtns}</div>`;
+  }).join("");
+}
+function _evtHideForm() {
+  document.getElementById("evt-form").style.display = "none";
+  document.getElementById("evt-add-btn").style.display = state.isAdmin ? "" : "none";
+  document.getElementById("evt-msg").textContent = "";
+}
+function _evtShowForm() {
+  document.getElementById("evt-form").style.display = "";
+  document.getElementById("evt-add-btn").style.display = "none";
+}
+function _evtNewForm() {
+  if (!state.isAdmin) return;
+  _evtEditId = null;
+  document.getElementById("evt-f-title").value = "";
+  document.getElementById("evt-f-time").value = "";
+  document.getElementById("evt-f-place").value = "";
+  document.getElementById("evt-f-color").value = "#f59e0b";
+  document.getElementById("evt-f-memo").value = "";
+  document.getElementById("evt-msg").textContent = "";
+  _evtShowForm();
+}
+function _evtStartEdit(id) {
+  if (!state.isAdmin) return;
+  const ev = (state.events[_evtDate] || []).find(x => String(x.id) === String(id));
+  if (!ev) return;
+  _evtEditId = ev.id;
+  document.getElementById("evt-f-title").value = ev.title || "";
+  document.getElementById("evt-f-time").value = ev.event_time ? String(ev.event_time).slice(0, 5) : "";
+  document.getElementById("evt-f-place").value = ev.place || "";
+  document.getElementById("evt-f-color").value = ev.color || "#f59e0b";
+  document.getElementById("evt-f-memo").value = ev.memo || "";
+  document.getElementById("evt-msg").textContent = "";
+  _evtShowForm();
+}
+async function saveEvent() {
+  if (!state.isAdmin || !_evtDate) return;
+  const msg = document.getElementById("evt-msg");
+  const title = document.getElementById("evt-f-title").value.trim();
+  if (!title) { msg.textContent = "제목을 입력하세요."; return; }
+  const rec = {
+    date: _evtDate,
+    title,
+    event_time: document.getElementById("evt-f-time").value || null,
+    place: document.getElementById("evt-f-place").value.trim() || null,
+    color: document.getElementById("evt-f-color").value || null,
+    memo: document.getElementById("evt-f-memo").value.trim() || null,
+  };
+  const btn = document.getElementById("evt-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const q = _evtEditId
+      ? sb.from("schedule_events").update(rec).eq("id", _evtEditId)
+      : sb.from("schedule_events").insert(rec);
+    const { error } = await q;
+    if (error) throw error;
+    await reloadEvents();
+    renderEvtList(); render();   // render()는 표시 전용(근무 데이터 불변)
+    _evtHideForm();
+  } catch (e) {
+    msg.textContent = "저장 실패: " + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.textContent = "저장";
+  }
+}
+async function deleteEvent(id) {
+  if (!state.isAdmin) return;
+  if (!confirm("이 전체 공지를 삭제할까요?")) return;
+  try {
+    const { error } = await sb.from("schedule_events").delete().eq("id", id);
+    if (error) throw error;
+    await reloadEvents();
+    renderEvtList(); render();
+  } catch (e) {
+    alert("삭제 실패: " + (e.message || e));
   }
 }
 
@@ -2258,6 +2445,8 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
 
 // 셀 클릭 → 근무 조회(수정 불가). 입력은 기간 폼으로 일원화(B-2). 헤더/드래그 입력 제거.
 document.getElementById("grid").addEventListener("click", (e) => {
+  const evtTh = e.target.closest("th[data-evt-date]");   // 날짜 헤더/공지 라벨 → 전체 공지 팝업
+  if (evtTh) { openEventPopup(evtTh.dataset.evtDate); return; }
   const nameTd = e.target.closest("td.name[data-eid]");   // 직원 이름 → 휴무 종합(조회)
   if (nameTd) { openCrewSummary(nameTd.dataset.eid); return; }
   const td = e.target.closest("td.cell");
@@ -2289,6 +2478,18 @@ document.getElementById("hol-add").onclick = addHoliday;
 document.getElementById("hol-list").addEventListener("click", (e) => {
   const del = e.target.closest(".hol-del");
   if (del) deleteHoliday(del.dataset.date);
+});
+
+// 전체 공지 이벤트
+document.getElementById("evt-close").onclick = closeSheets;
+document.getElementById("evt-add-btn").onclick = _evtNewForm;
+document.getElementById("evt-form-cancel").onclick = _evtHideForm;
+document.getElementById("evt-save").onclick = saveEvent;
+document.getElementById("evt-list").addEventListener("click", (e) => {
+  const del = e.target.closest("[data-del]");
+  if (del) { deleteEvent(del.dataset.del); return; }
+  const ed = e.target.closest("[data-edit]");
+  if (ed) { _evtStartEdit(ed.dataset.edit); return; }
 });
 
 // 근무시간 설정
