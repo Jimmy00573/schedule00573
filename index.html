@@ -1492,8 +1492,11 @@ function openEditSheet(eid, date, name) {
   document.getElementById("edit-title").textContent = name;
   document.getElementById("edit-date").textContent = `${date} (${WD[weekday(y,m,d)]})`;
   const adj = (ov && ov.day_start && ov.day_end) ? ov : null;
+  // 게스트는 출근·퇴근만, 관리자는 휴게·실근무까지 (셀 툴팁과 동일 규칙)
   document.getElementById("edit-status").textContent = adj
-    ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
+    ? (state.isAdmin
+        ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
+        : `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end}`)
     : `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
   document.getElementById("edit-memo").textContent = cs.memo || "—";
   document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
