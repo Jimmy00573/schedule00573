@@ -907,9 +907,13 @@ function render() {
       if (isToday(y,m,d)) cls += " tcol";
       if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
       if (sp) cls += " span span-" + sp;
-      const titleText = adj
-        ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}` + (cs.memo ? ` · ${cs.memo}` : "")
-        : (cs.memo || "");
+      // 게스트는 출근·퇴근만, 관리자는 휴게·실근무까지
+      const timeStr = adj
+        ? (state.isAdmin
+            ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
+            : `출근 ${adj.day_start} · 퇴근 ${adj.day_end}`)
+        : "";
+      const titleText = timeStr ? timeStr + (cs.memo ? ` · ${cs.memo}` : "") : (cs.memo || "");
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
         + (cs.memo ? ` data-memo="${esc(cs.memo)}"` : "")
         + (titleText ? ` title="${esc(titleText)}"` : "");
