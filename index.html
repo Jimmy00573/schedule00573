@@ -1525,7 +1525,8 @@ async function applyRange() {
     } else {
       await Promise.all(targets.map(t => {
         const ov = state.overrides[t.eid + "|" + t.date];
-        const memo = memoBase || (ov ? ov.memo : "");
+        // 새 메모 없을 때: 같은 status면 기존 메모 보존(시간 조정 등), status가 바뀌면 옛 메모 버림
+        const memo = memoBase || ((ov && ov.status === def.status) ? ov.memo : "");
         return commitOverride(t.eid, t.date, def.status, memo, adj);   // adj=null이면 시간조정 초기화
       }));
     }
