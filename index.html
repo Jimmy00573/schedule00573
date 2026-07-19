@@ -416,13 +416,15 @@
   <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
 
   <!-- 셀 다중 선택 일괄 지정 바(관리자) -->
-  <div id="sel-bar" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;background:#1e293b;color:#fff;padding:10px 14px;align-items:center;gap:10px;box-shadow:0 -2px 10px rgba(0,0,0,.25)">
-    <span id="sel-count" style="font-weight:700;font-size:14px"></span>
-    <div style="margin-left:auto;display:flex;gap:8px">
-      <button class="btn" id="sel-off"   style="background:#64748b;color:#fff">휴무</button>
-      <button class="btn" id="sel-work"  style="background:#2563eb;color:#fff">근무</button>
-      <button class="btn" id="sel-clear" style="background:transparent;color:#cbd5e1;border:1px solid #475569">해제</button>
-    </div>
+  <div id="sel-bar" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;background:#1e293b;color:#fff;padding:10px 14px;flex-wrap:wrap;align-items:center;gap:8px;box-shadow:0 -2px 10px rgba(0,0,0,.25)">
+    <span id="sel-count" style="font-weight:700;font-size:14px;margin-right:auto"></span>
+    <button class="btn" id="sel-off"    style="background:#64748b;color:#fff">휴무</button>
+    <button class="btn" id="sel-work"   style="background:#2563eb;color:#fff">근무</button>
+    <button class="btn" id="sel-annual" style="background:#0891b2;color:#fff">연차</button>
+    <button class="btn" id="sel-luse"   style="background:#7c3aed;color:#fff">대체휴무</button>
+    <button class="btn" id="sel-lgrant" style="background:#059669;color:#fff">대체근무</button>
+    <button class="btn" id="sel-etc"    style="background:#b45309;color:#fff">경조사</button>
+    <button class="btn" id="sel-clear"  style="background:transparent;color:#cbd5e1;border:1px solid #475569">해제</button>
   </div>
 </div>
 
@@ -1607,9 +1609,29 @@ async function applyBulkStatus(typeKey) {
     const seen = new Set();
     const delTargets = hits.filter(h => { const k = h.table + "|" + h.employee_id + "|" + h.date; if (seen.has(k)) return false; seen.add(k); return true; });
     await Promise.all(delTargets.map(h => sb.from(h.table).delete().eq("employee_id", h.employee_id).eq("date", h.date)));
-    // 스케줄 override: 흩어진 일괄은 사유 생략(빈 메모) → 유형 변경 시 옛 메모 초기화(adj 없음). commitOverride 재사용.
-    await Promise.all(cells.map(c => commitOverride(c.eid, c.date, def.status, "", null)));
-    if (hits.length) { await loadLeave(); await loadAnnual(); }   // 장부 삭제 반영(잔여·집계 즉시 갱신)
+    // 스케줄 표시: 근무/휴무는 빈 메모(유형 변경 시 초기화), 특수 유형은 유형명(applyRange memoBase 규칙). commitOverride 재사용.
+    const memo = (typeKey === "work" || typeKey === "off") ? "" : def.label;
+    await Promise.all(cells.map(c => commitOverride(c.eid, c.date, def.status, memo, null)));
+    // 장부 기록(연차/대체휴무/대체근무/경조사) — 직원별 선택 날짜만(교차곱=정확히 선택 쌍). ledgerInsertDedup 재사용(applyRange와 동일 인자).
+    if (def.ledger !== "none") {
+      const byEmp = {};
+      cells.forEach(c => { (byEmp[c.eid] = byEmp[c.eid] || []).push(c.date); });
+      for (const [eid, ds] of Object.entries(byEmp)) {
+        if (def.ledger === "annual")
+          await ledgerInsertDedup("annual_leave_ledger", [eid], ds, {},
+            (e, dt) => ({ employee_id: e, date: dt, days: 1, reason: null, source: "schedule" }));
+        else if (def.ledger === "leave_use")
+          await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "use", category: "대체휴무" },
+            (e, dt) => ({ employee_id: e, date: dt, direction: "use", category: "대체휴무", days: 1, reason: null }));
+        else if (def.ledger === "leave_grant")
+          await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "grant", category: "대체근무" },
+            (e, dt) => ({ employee_id: e, date: dt, direction: "grant", category: "대체근무", days: 1, reason: null }));
+        else if (def.ledger === "etc")
+          await ledgerInsertDedup("etc_leave_ledger", [eid], ds, {},
+            (e, dt) => ({ employee_id: e, date: dt, category: "경조사및기타", reason: null, source: "schedule" }));
+      }
+    }
+    if (hits.length || def.ledger !== "none") { await loadLeave(); await loadAnnual(); }   // 장부 변경 반영(잔여·집계 즉시 갱신)
     clearSelection();
     render();
   } catch (e) { alert("일괄 적용 실패: " + (e.message || e)); }
@@ -2542,9 +2564,13 @@ document.getElementById("grid").addEventListener("click", (e) => {
 });
 
 // 셀 다중 선택 일괄 지정 바
-document.getElementById("sel-off").onclick   = () => applyBulkStatus("off");
-document.getElementById("sel-work").onclick  = () => applyBulkStatus("work");
-document.getElementById("sel-clear").onclick = clearSelection;
+document.getElementById("sel-off").onclick    = () => applyBulkStatus("off");
+document.getElementById("sel-work").onclick   = () => applyBulkStatus("work");
+document.getElementById("sel-annual").onclick = () => applyBulkStatus("annual");
+document.getElementById("sel-luse").onclick   = () => applyBulkStatus("leave_use");
+document.getElementById("sel-lgrant").onclick = () => applyBulkStatus("leave_grant");
+document.getElementById("sel-etc").onclick    = () => applyBulkStatus("etc");
+document.getElementById("sel-clear").onclick  = clearSelection;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _selCells.size) clearSelection(); });
 
 // 기간 지정 일괄 입력
