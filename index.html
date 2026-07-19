@@ -168,6 +168,7 @@
   .evt-chip{display:block; max-width:100%; font-size:9px; line-height:1.25; padding:1px 3px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700}
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
   td.cell .tadj{font-size:9px; line-height:1.1; font-weight:800; color:#c2410c; letter-spacing:-0.3px}   /* 시간 조정 축약(5-14) */
+  td.cell.selected{outline:2px solid #2563eb; outline-offset:-2px; background:#dbeafe; position:relative; z-index:2; cursor:pointer}   /* 다중 선택된 칸(관리자) */
   /* 집계(하단 고정) */
   tfoot td{
     position:sticky; bottom:0; z-index:6; background:#f8fafc; text-align:center;
@@ -413,6 +414,16 @@
   </div>
 
   <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
+
+  <!-- 셀 다중 선택 일괄 지정 바(관리자) -->
+  <div id="sel-bar" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;background:#1e293b;color:#fff;padding:10px 14px;align-items:center;gap:10px;box-shadow:0 -2px 10px rgba(0,0,0,.25)">
+    <span id="sel-count" style="font-weight:700;font-size:14px"></span>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn" id="sel-off"   style="background:#64748b;color:#fff">휴무</button>
+      <button class="btn" id="sel-work"  style="background:#2563eb;color:#fff">근무</button>
+      <button class="btn" id="sel-clear" style="background:transparent;color:#cbd5e1;border:1px solid #475569">해제</button>
+    </div>
+  </div>
 </div>
 
 <!-- 대체휴무 화면 -->
@@ -907,6 +918,7 @@ function render() {
       if (isToday(y,m,d)) cls += " tcol";
       if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
       if (sp) cls += " span span-" + sp;
+      if (_selCells.has(emp.id + "|" + dateStr(y,m,d))) cls += " selected";
       // 게스트는 출근·퇴근만, 관리자는 휴게·실근무까지
       const timeStr = adj
         ? (state.isAdmin
@@ -1375,6 +1387,7 @@ async function deleteEvent(id) {
 
 /* ── 월 이동 ── */
 async function goMonth(y, m) {
+  clearSelection();   // 달 바뀌면 셀 선택 해제(월 한정 선택)
   state.y = y; state.m = m;
   const msg = document.getElementById("grid-msg");
   msg.textContent = "불러오는 중…"; msg.className = "msg"; msg.style.display = "";
@@ -1532,6 +1545,74 @@ async function commitOverride(eid, date, status, memo, adj) {
     if (error) throw error;
     state.overrides[eid + "|" + date] = data;
   }
+}
+
+/* ── 셀 다중 선택 → 일괄 지정(관리자 전용, 휴무/근무). 흩어진 날 빠른 입력. 기간 폼과 병행 ── */
+const _selCells = new Set();   // key = eid|date
+function toggleCellSelect(td) {
+  const key = td.dataset.eid + "|" + td.dataset.date;
+  if (_selCells.has(key)) { _selCells.delete(key); td.classList.remove("selected"); }
+  else { _selCells.add(key); td.classList.add("selected"); }
+  updateSelBar();
+}
+function updateSelBar() {
+  const bar = document.getElementById("sel-bar");
+  if (!bar) return;
+  if (state.isAdmin && state.tab === "schedule" && _selCells.size > 0) {
+    bar.style.display = "flex";
+    document.getElementById("sel-count").textContent = `${_selCells.size}칸 선택됨`;
+  } else {
+    bar.style.display = "none";
+  }
+}
+function clearSelection() {
+  _selCells.clear();
+  document.querySelectorAll("#grid td.cell.selected").forEach(td => td.classList.remove("selected"));
+  updateSelBar();
+}
+// 선택 셀에 휴무/근무 일괄 적용. 기존 연차/대체휴무/경조사 장부는 모아서 확인 후 삭제(정합성).
+async function applyBulkStatus(typeKey) {
+  if (!state.isAdmin || !_selCells.size) return;
+  const def = RANGE_TYPES[typeKey];
+  if (!def) return;
+  const cells = [..._selCells].map(k => { const i = k.indexOf("|"); return { eid: k.slice(0, i), date: k.slice(i + 1) }; });
+  const empIds = [...new Set(cells.map(c => c.eid))];
+  const dates  = [...new Set(cells.map(c => c.date))];
+  const selKeys = new Set(cells.map(c => c.eid + "|" + c.date));
+  // 기존 장부 확인(교차곱 조회 후 실제 선택 쌍만 필터 — 흩어진 선택 정확도)
+  let hits = [];
+  try {
+    const [ann, lv, etc] = await Promise.all([
+      sb.from("annual_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
+      sb.from("leave_ledger").select("employee_id,date,direction").in("employee_id", empIds).in("date", dates),
+      sb.from("etc_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
+    ]);
+    if (ann.error) throw ann.error; if (lv.error) throw lv.error; if (etc.error) throw etc.error;
+    const inSel = r => selKeys.has(String(r.employee_id) + "|" + r.date);
+    hits = [
+      ...(ann.data || []).filter(inSel).map(r => ({ table: "annual_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "연차" })),
+      ...(lv.data  || []).filter(inSel).map(r => ({ table: "leave_ledger", employee_id: r.employee_id, date: r.date, kind: r.direction === "grant" ? "대체근무" : "대체휴무" })),
+      ...(etc.data || []).filter(inSel).map(r => ({ table: "etc_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "경조사및기타" })),
+    ];
+  } catch (e) { alert("기존 기록 확인 실패: " + (e.message || e)); return; }
+  if (hits.length) {
+    const cntCells = new Set(hits.map(h => h.employee_id + "|" + h.date)).size;
+    const byKind = {};
+    hits.forEach(h => { byKind[h.kind] = (byKind[h.kind] || 0) + 1; });
+    const parts = Object.entries(byKind).map(([k, n]) => `${k} ${n}일`);
+    if (!confirm(`선택한 ${_selCells.size}칸 중 ${cntCells}칸에 기록이 있습니다(${parts.join(", ")}).\n기존 기록을 취소(삭제)하고 '${def.label}'(으)로 변경할까요?`)) return;
+  }
+  try {
+    // 장부 삭제(선택 쌍만, 정확히). 같은 쌍·표 중복 제거.
+    const seen = new Set();
+    const delTargets = hits.filter(h => { const k = h.table + "|" + h.employee_id + "|" + h.date; if (seen.has(k)) return false; seen.add(k); return true; });
+    await Promise.all(delTargets.map(h => sb.from(h.table).delete().eq("employee_id", h.employee_id).eq("date", h.date)));
+    // 스케줄 override: 흩어진 일괄은 사유 생략(빈 메모) → 유형 변경 시 옛 메모 초기화(adj 없음). commitOverride 재사용.
+    await Promise.all(cells.map(c => commitOverride(c.eid, c.date, def.status, "", null)));
+    if (hits.length) { await loadLeave(); await loadAnnual(); }   // 장부 삭제 반영(잔여·집계 즉시 갱신)
+    clearSelection();
+    render();
+  } catch (e) { alert("일괄 적용 실패: " + (e.message || e)); }
 }
 
 /* ── 기간 지정 일괄 입력(관리자): 직원 다중 × 시작~종료일 → 유형별 스케줄 override + 장부 자동 기록 ── */
@@ -1789,6 +1870,7 @@ async function doLogin() {
 }
 function doLogout() {
   state.isAdmin = false;
+  clearSelection();   // 게스트 전환 시 선택 해제
   sessionStorage.removeItem("sched_admin");
   localStorage.removeItem("sched_admin_keep");
   updateAuthUI();
@@ -1955,6 +2037,7 @@ async function savePat() {
 
 /* ── 탭 전환 ── */
 function setTab(tab) {
+  if (tab !== "schedule") clearSelection();   // 다른 탭 가면 선택 해제(하단 바 숨김)
   state.tab = tab;
   document.getElementById("schedule-view").style.display = tab === "schedule" ? "" : "none";
   document.getElementById("leave-view").style.display = tab === "leave" ? "" : "none";
@@ -2454,8 +2537,15 @@ document.getElementById("grid").addEventListener("click", (e) => {
   if (nameTd) { openCrewSummary(nameTd.dataset.eid); return; }
   const td = e.target.closest("td.cell");
   if (!td) return;
+  if (state.isAdmin) { toggleCellSelect(td); return; }   // 관리자: 다중 선택 토글 / 게스트: 기존 조회
   openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
 });
+
+// 셀 다중 선택 일괄 지정 바
+document.getElementById("sel-off").onclick   = () => applyBulkStatus("off");
+document.getElementById("sel-work").onclick  = () => applyBulkStatus("work");
+document.getElementById("sel-clear").onclick = clearSelection;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _selCells.size) clearSelection(); });
 
 // 기간 지정 일괄 입력
 document.getElementById("range-btn").onclick = openRangeSheet;
