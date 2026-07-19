@@ -389,7 +389,7 @@
   <div class="tabs">
     <button class="tab active" id="tab-sched">스케줄</button>
     <button class="tab" id="tab-leave">대체휴무</button>
-    <button class="tab" id="tab-annual">연차</button>
+    <button class="tab" id="tab-annual">휴가</button>
   </div>
   <div class="spacer"></div>
   <span class="role" id="role">읽기 전용</span>
@@ -437,7 +437,7 @@
     <span id="sel-count" style="font-weight:700;font-size:14px;margin-right:auto"></span>
     <button class="btn" id="sel-off"    style="background:#64748b;color:#fff">휴무</button>
     <button class="btn" id="sel-work"   style="background:#2563eb;color:#fff">근무</button>
-    <button class="btn" id="sel-annual" style="background:#0891b2;color:#fff">연차</button>
+    <button class="btn" id="sel-annual" style="background:#0891b2;color:#fff">휴가</button>
     <button class="btn" id="sel-luse"   style="background:#7c3aed;color:#fff">대체휴무</button>
     <button class="btn" id="sel-lgrant" style="background:#059669;color:#fff">대체근무</button>
     <button class="btn" id="sel-etc"    style="background:#b45309;color:#fff">경조사</button>
@@ -468,13 +468,13 @@
 <!-- 연차 화면 -->
 <div id="annual-view" style="display:none">
   <div class="subbar">
-    <div class="lv-title">연차 관리</div>
+    <div class="lv-title">휴가 관리</div>
     <div class="spacer"></div>
-    <button class="btn adm-only" id="annual-add-btn" style="display:none">+ 연차 사용 추가</button>
+    <button class="btn adm-only" id="annual-add-btn" style="display:none">+ 휴가 사용 추가</button>
   </div>
   <div id="annual-body">
     <div class="an-grant">
-      <span>연차 부여</span><b id="an-grant-view">—</b><span>일 (전체 공통)</span>
+      <span>휴가 부여</span><b id="an-grant-view">—</b><span>일 (전체 공통)</span>
       <span class="spacer"></span>
       <span class="an-grant-editwrap adm-only" id="an-grant-editwrap" style="display:none">
         <input id="an-grant-input" type="number" min="0" step="0.5" inputmode="decimal">
@@ -566,7 +566,7 @@
 
 <!-- 연차 사용 추가 -->
 <div class="sheet" id="annual-sheet">
-  <h3>연차 사용 추가</h3>
+  <h3>휴가 사용 추가</h3>
   <label class="lbl">직원</label>
   <select id="an-emp"></select>
   <div class="row2" style="margin-top:12px">
@@ -576,7 +576,7 @@
   <label class="lbl">일수 (단일 날짜만, 반차 0.5)</label>
   <input id="an-days" type="number" min="0.5" step="0.5" value="1" inputmode="decimal">
   <label class="lbl">사유 (선택)</label>
-  <input id="an-reason" type="text" placeholder="예) 개인 연차">
+  <input id="an-reason" type="text" placeholder="예) 개인 휴가">
   <div class="hint" id="an-hint">기간(시작≠종료)이면 그 기간 전부 하루 1일씩 자동 기록됩니다.</div>
   <div class="row2">
     <button class="btn2 ghost" id="an-cancel">취소</button>
@@ -603,7 +603,7 @@
     <div class="rg-type-group">
       <span class="rg-type-cat">휴무</span>
       <button type="button" class="rg-type" data-t="off">휴무</button>
-      <button type="button" class="rg-type" data-t="annual">연차</button>
+      <button type="button" class="rg-type" data-t="annual">휴가</button>
       <button type="button" class="rg-type" data-t="leave_use">대체휴무</button>
       <button type="button" class="rg-type" data-t="etc">경조사및기타</button>
     </div>
@@ -999,6 +999,7 @@ function render() {
 function renderWoPanel(weeks, weekAnom, m) {
   const el = document.getElementById("wo-panel");
   if (!el) return;
+  if (!state.isAdmin) { el.innerHTML = ""; el.style.display = "none"; return; }   // 관리자 전용(게스트는 안 보임)
   if (!state.employees.length) { el.innerHTML = ""; el.style.display = "none"; return; }
   el.style.display = "";
   const distinct = new Set();
@@ -1145,7 +1146,7 @@ function renderWorkSummary() {
   const dim = daysInMonth(state.y, state.m);
   const lt = leaveTotals();    // 대체휴무 지급/사용(누적)
   const at = annualTotals();   // 연차 사용(누적)
-  const sub = `근무일·시간·휴무 = ${state.m}월 / 연차·대체휴무 잔여 = 누적 · 1일 실근무 ${fmtHM(workMinutes())} 기준`;
+  const sub = `근무일·시간·휴무 = ${state.m}월 / 휴가·대체휴무 잔여 = 누적 · 1일 실근무 ${fmtHM(workMinutes())} 기준`;
   const rows = emps.map(e => {
     const st = workStatOf(e, state.y, state.m);   // {days, minutes} 기본 실근무 + 연장
     const offDays = dim - st.days;                // 모든 날은 근무/휴무 → 휴무 = 그 달 일수 − 근무일
@@ -1165,7 +1166,7 @@ function renderWorkSummary() {
   }).join("");
   el.innerHTML = `<div class="ws-title">${state.m}월 요약 리포트 <span class="ws-sub">${sub}</span></div>`
     + `<div class="ws-scroll"><table class="ws-table"><thead><tr>`
-    + `<th>직원</th><th>근무일</th><th>근무시간</th><th>휴무</th><th>연차 사용</th><th>연차 잔여</th><th>대체휴무 잔여</th>`
+    + `<th>직원</th><th>근무일</th><th>근무시간</th><th>휴무</th><th>휴가 사용</th><th>휴가 잔여</th><th>대체휴무 잔여</th>`
     + `</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1548,7 +1549,7 @@ function crewSummaryHtml(emp, etc) {
   const totalOff = aUse + lt.use + eRows.length;
   return `
     <div class="crew-sec">
-      <div class="crew-h">연차<span class="crew-sum">부여 ${fmtDays(grant)} · 사용 ${fmtDays(aUse)} · 잔여 ${fmtDays(grant - aUse)}일</span></div>
+      <div class="crew-h">휴가<span class="crew-sum">부여 ${fmtDays(grant)} · 사용 ${fmtDays(aUse)} · 잔여 ${fmtDays(grant - aUse)}일</span></div>
       <div class="crew-dates">${aRows.length ? aDates : `<span class="crew-none">없음</span>`}</div>
     </div>
     <div class="crew-sec">
@@ -1559,7 +1560,7 @@ function crewSummaryHtml(emp, etc) {
       <div class="crew-h">경조사및기타<span class="crew-sum">${eRows.length}일</span></div>
       <div class="crew-list">${eRows.length ? eList : `<span class="crew-none">없음</span>`}</div>
     </div>
-    <div class="crew-total">총 휴무 ${fmtDays(totalOff)}일 <span class="crew-sub">(연차 ${fmtDays(aUse)} + 대체휴무 ${fmtDays(lt.use)} + 경조사및기타 ${eRows.length})</span></div>`;
+    <div class="crew-total">총 휴무 ${fmtDays(totalOff)}일 <span class="crew-sub">(휴가 ${fmtDays(aUse)} + 대체휴무 ${fmtDays(lt.use)} + 경조사및기타 ${eRows.length})</span></div>`;
 }
 
 /* ── 셀 클릭: 근무 조회(수정 불가 — 입력은 기간 폼으로 일원화, B-2) ── */
@@ -1657,7 +1658,7 @@ async function applyBulkStatus(typeKey) {
     if (ann.error) throw ann.error; if (lv.error) throw lv.error; if (etc.error) throw etc.error;
     const inSel = r => selKeys.has(String(r.employee_id) + "|" + r.date);
     hits = [
-      ...(ann.data || []).filter(inSel).map(r => ({ table: "annual_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "연차" })),
+      ...(ann.data || []).filter(inSel).map(r => ({ table: "annual_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "휴가" })),
       ...(lv.data  || []).filter(inSel).map(r => ({ table: "leave_ledger", employee_id: r.employee_id, date: r.date, kind: r.direction === "grant" ? "대체근무" : "대체휴무" })),
       ...(etc.data || []).filter(inSel).map(r => ({ table: "etc_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "경조사및기타" })),
     ];
@@ -1708,7 +1709,7 @@ const RANGE_TYPES = {
   work:        { label: "근무",        status: "work", ledger: "none" },
   overtime:    { label: "시간 조정",    status: "work", ledger: "none" },   // 조기출근·연장(키는 overtime 유지 — 기존 데이터 호환)
   off:         { label: "휴무",        status: "off",  ledger: "none" },
-  annual:      { label: "연차",        status: "off",  ledger: "annual" },
+  annual:      { label: "휴가",        status: "off",  ledger: "annual" },
   leave_use:   { label: "대체휴무",    status: "off",  ledger: "leave_use" },
   leave_grant: { label: "대체근무",    status: "work", ledger: "leave_grant" },
   etc:         { label: "경조사및기타", status: "off",  ledger: "etc" },
@@ -1850,7 +1851,7 @@ async function applyRange() {
   const etcCnt   = existing.etc.length;
   if (annCnt + useCnt + grantCnt + etcCnt > 0) {
     const parts = [];
-    if (annCnt)   parts.push(`연차 ${annCnt}일`);
+    if (annCnt)   parts.push(`휴가 ${annCnt}일`);
     if (useCnt)   parts.push(`대체휴무 ${useCnt}일`);
     if (grantCnt) parts.push(`대체근무 ${grantCnt}일`);
     if (etcCnt)   parts.push(`경조사및기타 ${etcCnt}일`);
@@ -2359,7 +2360,7 @@ function grantOf(emp) {
   return emp.annual_leave_days != null ? Number(emp.annual_leave_days) : (Number(state.annualDays) || 0);
 }
 function annualLine(r) {
-  const meta = (r.reason ? esc(r.reason) : "연차 사용") + (r.source && r.source !== "manual" ? ` · ${esc(r.source)}` : "");
+  const meta = (r.reason ? esc(r.reason) : "휴가 사용") + (r.source && r.source !== "manual" ? ` · ${esc(r.source)}` : "");
   const del = state.isAdmin ? `<button class="lv-del" data-id="${r.id}">삭제</button>` : "";
   return `<div class="lv-line">
     <span class="lb use">사용</span>
@@ -2482,7 +2483,7 @@ async function saveAnnual() {
   }
 }
 async function deleteAnnual(id) {
-  if (!confirm("이 연차 기록을 삭제할까요?")) return;
+  if (!confirm("이 휴가 기록을 삭제할까요?")) return;
   try {
     const { error } = await sb.from("annual_leave_ledger").delete().eq("id", id);
     if (error) throw error;
