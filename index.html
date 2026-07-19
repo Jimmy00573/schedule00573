@@ -138,6 +138,21 @@
   .wk-off .wo-over{color:#dc2626}   /* 2 초과 = 빨강 */
   .wk-off .wo-under{color:#2563eb}  /* 2 미만 = 파랑 */
   .wk-off .wo-sep{color:var(--border); font-weight:400; margin:0 1px}
+  /* 주별 순수 휴무 체크 패널(표 아래) */
+  #wo-panel{margin:12px auto 0; max-width:1040px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff}
+  .wo-hd{display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; background:#f8fafc; user-select:none}
+  .wo-title{font-weight:700; font-size:14px}
+  .wo-badge{font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; background:#fef2f2; color:#dc2626}
+  .wo-badge.ok{background:#f0fdf4; color:#16a34a}
+  .wo-arrow{margin-left:auto; font-size:11px; color:var(--sub)}
+  .wo-week{display:flex; gap:8px; align-items:flex-start; padding:8px 14px; border-top:1px solid var(--border); flex-wrap:wrap}
+  .wo-wlabel{font-size:12px; font-weight:700; min-width:74px; padding-top:2px}
+  .wo-range{font-weight:400; color:var(--sub); font-size:11px}
+  .wo-chips{display:flex; gap:6px; flex-wrap:wrap; flex:1}
+  .wo-chip{font-size:12px; font-weight:600; padding:2px 9px; border-radius:12px}
+  .wo-chip.under{background:#fef2f2; color:#dc2626}   /* 순수 휴무 부족(<2) = 빨강 */
+  .wo-chip.over{background:#fff7ed; color:#c2410c}    /* 순수 휴무 초과(>2) = 주황 */
+  .wo-ok{font-size:12px; color:#16a34a; font-weight:600}
 
   /* 데이터 셀 */
   td.cell{
@@ -412,6 +427,8 @@
     <div class="msg" id="grid-msg">불러오는 중…</div>
     <div id="grid"></div>
   </div>
+
+  <div id="wo-panel" style="display:none"></div>
 
   <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
 
@@ -755,6 +772,7 @@ const state = {
   events: {},     // "YYYY-MM-DD" -> [schedule_events 행] (전체 공지, 근무와 무관한 표시 전용)
   workCfg: { start: "07:30", end: "17:00", breakMin: 100 },   // 근무시간 세팅(app_settings 폴백 기본값)
   ledger: [],     // 대체휴무 장부 전체 행
+  etc: [],        // 경조사및기타 장부(그 달) — 순수 휴무 판별용
   leaveExpanded: new Set(),  // 펼친 직원 id
   leaveMoreExpanded: new Set(),  // 더보기 펼침 "eid|grant"/"eid|use"
   leaveFilter: { emp: "", q: "", from: "", to: "" },   // 대체휴무 검색/필터(잔여는 불변, 내역만 좁힘)
@@ -771,17 +789,19 @@ async function loadMonth(y, m) {
   const ym = ymStr(y,m);
   const first = dateStr(y,m,1);
   const last  = dateStr(y,m,daysInMonth(y,m));
-  const [emp, pat, ovr, hol, evt] = await Promise.all([
+  const [emp, pat, ovr, hol, evt, etc] = await Promise.all([
     sb.from("employees").select("*").order("display_order"),
     sb.from("monthly_patterns").select("*").eq("month", ym),
     sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
     sb.from("holidays").select("date,name").gte("date", first).lte("date", last),
     sb.from("schedule_events").select("*").gte("date", first).lte("date", last)
       .order("event_time", { ascending: true }).order("created_at", { ascending: true }),
+    sb.from("etc_leave_ledger").select("employee_id,date").gte("date", first).lte("date", last),
   ]);
   if (emp.error) throw emp.error;
   if (pat.error) throw pat.error;
   if (ovr.error) throw ovr.error;
+  state.etc = (etc && !etc.error) ? (etc.data || []) : [];   // 경조사 조회 실패는 무시(순수 휴무 판별만 영향)
 
   state.allEmployees = emp.data || [];
   state.employees = state.allEmployees.filter(e => e.active);
@@ -879,6 +899,15 @@ function render() {
 
   // 본문
   let tbody = "";
+  // 순수 휴무 판별: 장부(연차·대체휴무/근무·경조사)에 있는 (eid|date)는 순수 휴무 아님
+  const _lkey = (eid, dt) => String(eid) + "|" + dt;
+  const ledgerDays = new Set();
+  [...state.annual, ...state.ledger, ...(state.etc || [])].forEach(r => ledgerDays.add(_lkey(r.employee_id, r.date)));
+  const isPureOff = (eid, dstr, cs) => cs.status === "off" && !ledgerDays.has(_lkey(eid, dstr));
+  // 주차(월~일) 구간 — 그 달 날짜 기준(경계 주는 그 달 부분만). weekOffs와 동일 규칙.
+  const weeks = [];
+  for (let d=1; d<=dim; d++){ if (d===1 || weekday(y,m,d)===1) weeks.push([]); weeks[weeks.length-1].push(d); }
+  const weekAnom = weeks.map(() => []);   // 주별 특이자 [{name,count}] (순수 휴무 2일 아님)
   for (const emp of state.employees){
     // 그 달 셀 상태 미리 계산
     const cells = [];
@@ -902,13 +931,14 @@ function render() {
     const weekOffs = [];
     for (let d=1; d<=dim; d++){
       if (d===1 || weekday(y,m,d)===1) weekOffs.push(0);   // 월요일(또는 1일) = 새 주 시작
-      if (cells[d-1].status === "off") weekOffs[weekOffs.length-1]++;
+      if (isPureOff(emp.id, dateStr(y,m,d), cells[d-1])) weekOffs[weekOffs.length-1]++;   // 순수 휴무만(연차·대체·경조사 제외)
     }
     const woTitle = weekOffs.map((n,i) => `${i+1}주차 ${n}일`).join(", ");
     const woHtml = weekOffs.map(n => {
       const c = n > 2 ? " wo-over" : (n < 2 ? " wo-under" : "");   // 기본 2와 다르면 강조
       return `<span class="wo${c}">${n}</span>`;
     }).join(`<span class="wo-sep">·</span>`);
+    weekOffs.forEach((n, wi) => { if (n !== 2) weekAnom[wi].push({ name: emp.name, count: n }); });   // 주별 특이자(2일 아님)
     // 렌더
     let row = `<tr><td class="name" data-eid="${emp.id}"><div class="nm-name">${esc(emp.name)}</div><div class="wk-off" title="${woTitle}">${woHtml}</div></td>`;
     for (let d=1; d<=dim; d++){
@@ -959,9 +989,44 @@ function render() {
   document.getElementById("grid").innerHTML =
     `<table><thead>${thead}</thead><tbody>${tbody}</tbody><tfoot>${workRow}${offRow}</tfoot></table>`;
 
+  renderWoPanel(weeks, weekAnom, m);
   renderLeaveBar();
   renderTodayCrew();
   renderWorkSummary();
+}
+
+/* ── 주별 순수 휴무 2일 체크 패널(표 아래, 관리자·게스트 공통) ── */
+function renderWoPanel(weeks, weekAnom, m) {
+  const el = document.getElementById("wo-panel");
+  if (!el) return;
+  if (!state.employees.length) { el.innerHTML = ""; el.style.display = "none"; return; }
+  el.style.display = "";
+  const distinct = new Set();
+  weekAnom.forEach(w => w.forEach(a => distinct.add(a.name)));
+  const hasAnom = distinct.size > 0;
+  const rows = weeks.map((days, wi) => {
+    const range = `${m}/${days[0]}~${m}/${days[days.length-1]}`;
+    const anoms = weekAnom[wi];
+    const body = anoms.length
+      ? anoms.map(a => `<span class="wo-chip ${a.count < 2 ? "under" : "over"}">${esc(a.name)} ${a.count}일</span>`).join("")
+      : `<span class="wo-ok">전원 정상 ✓</span>`;
+    return `<div class="wo-week"><span class="wo-wlabel">${wi+1}주차 <span class="wo-range">${range}</span></span><div class="wo-chips">${body}</div></div>`;
+  }).join("");
+  el.innerHTML =
+    `<div class="wo-hd" onclick="toggleWoPanel()">
+       <span class="wo-title">주별 휴무 체크</span>
+       ${hasAnom ? `<span class="wo-badge">특이 ${distinct.size}명</span>` : `<span class="wo-badge ok">전원 정상</span>`}
+       <span id="wo-panel-arrow" class="wo-arrow">${hasAnom ? "▲" : "▼"}</span>
+     </div>
+     <div id="wo-panel-body" style="display:${hasAnom ? "" : "none"}">${rows}</div>`;
+}
+function toggleWoPanel() {
+  const b = document.getElementById("wo-panel-body");
+  const a = document.getElementById("wo-panel-arrow");
+  if (!b) return;
+  const show = b.style.display === "none";
+  b.style.display = show ? "" : "none";
+  if (a) a.textContent = show ? "▲" : "▼";
 }
 
 /* ── 스케줄 상단: 직원별 대체휴무 잔여 요약 바 (대체휴무 탭 계산 로직 재사용) ── */
@@ -1631,7 +1696,7 @@ async function applyBulkStatus(typeKey) {
             (e, dt) => ({ employee_id: e, date: dt, category: "경조사및기타", reason: null, source: "schedule" }));
       }
     }
-    if (hits.length || def.ledger !== "none") { await loadLeave(); await loadAnnual(); }   // 장부 변경 반영(잔여·집계 즉시 갱신)
+    if (hits.length || def.ledger !== "none") { await loadLeave(); await loadAnnual(); await loadEtcMonth(); }   // 장부 변경 반영(잔여·집계·순수휴무 패널 갱신)
     clearSelection();
     render();
   } catch (e) { alert("일괄 적용 실패: " + (e.message || e)); }
@@ -1839,6 +1904,7 @@ async function applyRange() {
     // 환원으로 연차·대체휴무 어느 쪽이든 바뀔 수 있으므로 둘 다 재로드(잔여 즉시 반영)
     await loadLeave();
     await loadAnnual();
+    await loadEtcMonth();   // 경조사도 순수 휴무 패널에 반영
     closeSheets();
     render();
   } catch (e) {
@@ -2083,6 +2149,13 @@ async function loadLeave() {
     .select("*").order("date", { ascending: false }).order("id", { ascending: false });
   if (error) throw error;
   state.ledger = data || [];
+}
+// 경조사 장부(현재 달) 갱신 — 순수 휴무 패널 정합성용(장부 변경 후 재로드)
+async function loadEtcMonth() {
+  const first = dateStr(state.y, state.m, 1);
+  const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  const { data, error } = await sb.from("etc_leave_ledger").select("employee_id,date").gte("date", first).lte("date", last);
+  if (!error) state.etc = data || [];
 }
 
 async function loadAndRenderLeave() {
