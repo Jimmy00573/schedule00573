@@ -501,7 +501,7 @@
         <button class="btn" id="an-grant-save">변경</button>
       </span>
     </div>
-    <p class="note" style="margin:6px 8px 0">부여의 <b>*</b> = 직원별 개별 부여(여름·정기 공통 적용). 관리자는 직원 이름을 펼쳐 개별 부여를 설정/해제할 수 있습니다.</p>
+    <p class="note" style="margin:6px 8px 0">부여의 <b>*</b> = 직원별 개별 부여(여름·정기 각각 설정 가능, 빈칸=공통). 관리자는 직원 이름을 펼쳐 개별 부여를 설정/해제할 수 있습니다.</p>
     <div class="msg" id="annual-msg">불러오는 중…</div>
     <div class="lg-filter">
       <select class="lg-emp" id="af-emp"><option value="">전체 직원</option></select>
@@ -2416,16 +2416,22 @@ function annualTotalsByKind() {
   }
   return t;
 }
-// 직원 연차 부여(전체 합) = 개별(employees.annual_leave_days) 있으면 그 값, 없으면 여름+정기 공통 합
-function grantOf(emp) {
-  return emp.annual_leave_days != null
-    ? Number(emp.annual_leave_days)
-    : (Number(state.summerDays) || 0) + (Number(state.regularDays) || 0);
-}
-// 종류별 부여 = 개별 있으면 그 값을 양 종류 동일 적용(0=환자), 없으면 종류별 전체 공통
+// 종류별 부여 = 종류별 개별(summer/regular_leave_days) 우선 → 옛 annual_leave_days 하위호환 → 전체 공통
 function grantOfKind(emp, kind) {
-  if (emp.annual_leave_days != null) return Number(emp.annual_leave_days) || 0;
+  const col = kind === "여름휴가" ? emp.summer_leave_days : emp.regular_leave_days;
+  if (col != null) return Number(col) || 0;                                    // 종류별 개별 우선
+  if (emp.annual_leave_days != null) return Number(emp.annual_leave_days) || 0; // 하위호환(양 종류 공통 옛값)
   return kind === "여름휴가" ? (Number(state.summerDays) || 0) : (Number(state.regularDays) || 0);
+}
+// 종류별 개별 부여 여부(부여 * 표시) — 종류별 컬럼 or 옛 annual만 있는 경우
+function isIndivKind(emp, kind) {
+  const col = kind === "여름휴가" ? emp.summer_leave_days : emp.regular_leave_days;
+  if (col != null) return true;
+  return emp.summer_leave_days == null && emp.regular_leave_days == null && emp.annual_leave_days != null;
+}
+// 직원 연차 부여(전체 합) = 종류별 부여 합 — 요약·크루카드 등 기존 호출부 시그니처 유지
+function grantOf(emp) {
+  return grantOfKind(emp, "여름휴가") + grantOfKind(emp, "정기휴가");
 }
 function annualLine(r) {
   const meta = (r.reason ? esc(r.reason) : "휴가 사용") + (r.source && r.source !== "manual" ? ` · ${esc(r.source)}` : "");
@@ -2458,15 +2464,16 @@ function renderAnnual() {
     shown++;
     const used = totals[e.id] || 0;   // 합계는 전체 기준
     const grant = grantOf(e);
-    const indiv = e.annual_leave_days != null;   // 개별 부여 여부
-    const bal = grant - used;
-    // 종류별(여름/정기) 부여−사용=잔여
+    // 종류별(여름/정기) 부여−사용=잔여 + 개별 여부(*)
     const bk = byKind[e.id] || { summer: 0, regular: 0 };
+    const sIndiv = isIndivKind(e, "여름휴가"), rIndiv = isIndivKind(e, "정기휴가");
+    const indiv = sIndiv || rIndiv;   // 총합 부여 * 표시(둘 중 하나라도 개별)
+    const bal = grant - used;
     const sGrant = grantOfKind(e, "여름휴가"), sBal = sGrant - bk.summer;
     const rGrant = grantOfKind(e, "정기휴가"), rBal = rGrant - bk.regular;
     const kinds = `<div class="an-kinds">
-        <span class="kk">여름</span> ${fmtDays(sGrant)}−${fmtDays(bk.summer)}=<b class="${sBal < 0 ? "neg" : ""}">${fmtDays(sBal)}</b><br>
-        <span class="kk">정기</span> ${fmtDays(rGrant)}−${fmtDays(bk.regular)}=<b class="${rBal < 0 ? "neg" : ""}">${fmtDays(rBal)}</b>
+        <span class="kk">여름</span> ${fmtDays(sGrant)}${sIndiv ? "*" : ""}−${fmtDays(bk.summer)}=<b class="${sBal < 0 ? "neg" : ""}">${fmtDays(sBal)}</b><br>
+        <span class="kk">정기</span> ${fmtDays(rGrant)}${rIndiv ? "*" : ""}−${fmtDays(bk.regular)}=<b class="${rBal < 0 ? "neg" : ""}">${fmtDays(rBal)}</b>
       </div>`;
     const manualOpen = state.annualExpanded.has(String(e.id));
     const open = searching || manualOpen;   // 검색 중이면 자동 펼침
@@ -2480,7 +2487,10 @@ function renderAnnual() {
       // 개별 부여 편집기는 수동 펼침일 때만(검색 자동펼침 땐 내역만 깔끔히)
       const editor = (state.isAdmin && manualOpen) ? `<div class="an-edit">
         <span>개별 부여</span>
-        <input class="an-emp-grant" data-eid="${e.id}" type="number" min="0" step="0.5" inputmode="decimal" value="${indiv ? Number(e.annual_leave_days) : ""}" placeholder="공통">
+        <span class="eg-lbl">여름</span>
+        <input class="an-emp-grant" data-eid="${e.id}" data-kind="summer" type="number" min="0" step="0.5" inputmode="decimal" value="${e.summer_leave_days != null ? Number(e.summer_leave_days) : ""}" placeholder="공통">
+        <span class="eg-lbl">정기</span>
+        <input class="an-emp-grant" data-eid="${e.id}" data-kind="regular" type="number" min="0" step="0.5" inputmode="decimal" value="${e.regular_leave_days != null ? Number(e.regular_leave_days) : ""}" placeholder="공통">
         <button class="an-emp-grant-save" data-eid="${e.id}">저장</button>
         <button class="an-emp-grant-reset" data-eid="${e.id}">기본으로</button>
       </div>` : "";
@@ -2492,13 +2502,15 @@ function renderAnnual() {
   if (!shown) html += `<div class="lv-empty" style="padding:16px">조건에 맞는 내역 없음</div>`;
   document.getElementById("annual-summary").innerHTML = html;
 }
-// 직원 개별 부여 저장/해제 (val: 숫자 또는 null=기본으로)
-async function setEmpGrant(eid, val) {
+// 직원 개별 부여 저장/해제 — patch = {summer_leave_days, regular_leave_days}(숫자 또는 null=공통).
+// 레거시 annual_leave_days는 항상 null로 정리(종류별 컬럼이 진실의 원천).
+async function setEmpGrant(eid, patch) {
+  const upd = { ...patch, annual_leave_days: null };
   try {
-    const { error } = await sb.from("employees").update({ annual_leave_days: val }).eq("id", eid);
+    const { error } = await sb.from("employees").update(upd).eq("id", eid);
     if (error) throw error;
     const emp = state.allEmployees.find(x => String(x.id) === String(eid));   // employees는 같은 객체 참조
-    if (emp) emp.annual_leave_days = val;
+    if (emp) Object.assign(emp, upd);
     renderAnnual();
   } catch (e) { alert("개별 부여 저장 실패: " + (e.message || e)); }
 }
@@ -2696,13 +2708,16 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
   const gsave = e.target.closest(".an-emp-grant-save");
   if (gsave) {
     const eid = gsave.dataset.eid;
-    const inp = document.querySelector(`.an-emp-grant[data-eid="${eid}"]`);
-    const v = inp ? inp.value.trim() : "";
-    setEmpGrant(eid, v === "" ? null : (parseFloat(v) || 0));   // 비우면 기본(null)
+    const parseInp = kind => {
+      const inp = document.querySelector(`.an-emp-grant[data-eid="${eid}"][data-kind="${kind}"]`);
+      const v = inp ? inp.value.trim() : "";
+      return v === "" ? null : (parseFloat(v) || 0);   // 비우면 공통(null)
+    };
+    setEmpGrant(eid, { summer_leave_days: parseInp("summer"), regular_leave_days: parseInp("regular") });
     return;
   }
   const greset = e.target.closest(".an-emp-grant-reset");
-  if (greset) { setEmpGrant(greset.dataset.eid, null); return; }   // 개별 해제 → 기본
+  if (greset) { setEmpGrant(greset.dataset.eid, { summer_leave_days: null, regular_leave_days: null }); return; }   // 둘 다 공통 복귀
   const row = e.target.closest(".lv-row");
   if (!row) return;
   const eid = row.dataset.eid;
