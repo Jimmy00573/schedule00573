@@ -199,6 +199,8 @@
     position:fixed; left:0; right:0; bottom:0; z-index:41; background:#fff;
     border-radius:16px 16px 0 0; padding:18px 18px calc(18px + env(safe-area-inset-bottom));
     transform:translateY(100%); transition:transform .2s; max-width:560px; margin:0 auto;
+    max-height:calc(100vh - 40px); overflow-y:auto;   /* 내용 길면 시트 안 스크롤(확인/저장 버튼 항상 도달 가능) */
+    -webkit-overflow-scrolling:touch;
   }
   .sheet.open{transform:translateY(0)}
   .sheet h3{margin:0 0 8px; font-size:15px}
@@ -214,7 +216,7 @@
 
   /* 시트 공통 입력 요소 */
   .lbl{display:block; font-size:12px; color:var(--sub); margin:10px 0 4px}
-  .sheet input, .sheet textarea{
+  .sheet input, .sheet textarea, .sheet select{
     width:100%; padding:11px; border:1px solid var(--border); border-radius:9px;
     font-size:15px; font-family:inherit; box-sizing:border-box; background:#fff; color:var(--ink);
   }
@@ -437,6 +439,10 @@
     <span id="sel-count" style="font-weight:700;font-size:14px;margin-right:auto"></span>
     <button class="btn" id="sel-off"    style="background:#64748b;color:#fff">휴무</button>
     <button class="btn" id="sel-work"   style="background:#2563eb;color:#fff">근무</button>
+    <select id="sel-annual-kind" title="휴가 종류" style="background:#0e7490;color:#fff;border:1px solid #155e75;border-radius:8px;padding:6px 4px;font-family:inherit;font-size:12px">
+      <option value="정기휴가">정기휴가</option>
+      <option value="여름휴가">여름휴가</option>
+    </select>
     <button class="btn" id="sel-annual" style="background:#0891b2;color:#fff">휴가</button>
     <button class="btn" id="sel-luse"   style="background:#7c3aed;color:#fff">대체휴무</button>
     <button class="btn" id="sel-lgrant" style="background:#059669;color:#fff">대체근무</button>
@@ -575,6 +581,11 @@
   </div>
   <label class="lbl">일수 (단일 날짜만, 반차 0.5)</label>
   <input id="an-days" type="number" min="0.5" step="0.5" value="1" inputmode="decimal">
+  <label class="lbl">종류</label>
+  <select id="an-kind">
+    <option value="정기휴가">정기휴가</option>
+    <option value="여름휴가">여름휴가</option>
+  </select>
   <label class="lbl">사유 (선택)</label>
   <input id="an-reason" type="text" placeholder="예) 개인 휴가">
   <div class="hint" id="an-hint">기간(시작≠종료)이면 그 기간 전부 하루 1일씩 자동 기록됩니다.</div>
@@ -637,6 +648,13 @@
     <input id="rg-day-break" type="number" min="0" step="5" inputmode="numeric">
     <div class="wk-calc" id="rg-day-calc" style="margin-top:8px">실근무 —</div>
     <div class="hint" id="rg-ot-hint"></div>
+  </div>
+  <div id="rg-kind-box" style="display:none">
+    <label class="lbl">휴가 종류</label>
+    <select id="rg-kind">
+      <option value="정기휴가">정기휴가</option>
+      <option value="여름휴가">여름휴가</option>
+    </select>
   </div>
   <label class="lbl">사유 (선택)</label>
   <input id="rg-reason" type="text" placeholder="예) 여름휴가 (선택 입력)">
@@ -1643,6 +1661,8 @@ async function applyBulkStatus(typeKey) {
   if (!state.isAdmin || !_selCells.size) return;
   const def = RANGE_TYPES[typeKey];
   if (!def) return;
+  // 휴가(annual) 종류: 일괄 바 드롭다운 값(기본 정기휴가)
+  const annualKind = document.getElementById("sel-annual-kind")?.value || "정기휴가";
   const cells = [..._selCells].map(k => { const i = k.indexOf("|"); return { eid: k.slice(0, i), date: k.slice(i + 1) }; });
   const empIds = [...new Set(cells.map(c => c.eid))];
   const dates  = [...new Set(cells.map(c => c.date))];
@@ -1685,7 +1705,7 @@ async function applyBulkStatus(typeKey) {
       for (const [eid, ds] of Object.entries(byEmp)) {
         if (def.ledger === "annual")
           await ledgerInsertDedup("annual_leave_ledger", [eid], ds, {},
-            (e, dt) => ({ employee_id: e, date: dt, days: 1, reason: null, source: "schedule" }));
+            (e, dt) => ({ employee_id: e, date: dt, days: 1, reason: null, source: "schedule", kind: annualKind }));
         else if (def.ledger === "leave_use")
           await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "use", category: "대체휴무" },
             (e, dt) => ({ employee_id: e, date: dt, direction: "use", category: "대체휴무", days: 1, reason: null }));
@@ -1734,6 +1754,9 @@ function setRangeType(t) {
       updateDayCalc();
     }
   }
+  // 휴가(annual) 유형일 때만 종류 선택칸 노출(기본 정기휴가)
+  const kindBox = document.getElementById("rg-kind-box");
+  if (kindBox) kindBox.style.display = (t === "annual") ? "" : "none";
 }
 // 시간 조정 입력의 실근무 실시간 계산
 function updateDayCalc() {
@@ -1751,6 +1774,7 @@ function openRangeSheet() {
     `<label><input type="checkbox" data-eid="${e.id}">${esc(e.name)}</label>`).join("");   // 기본 전부 해제
   updateRgAllLabel();
   document.getElementById("rg-reason").value = "";
+  document.getElementById("rg-kind").value = "정기휴가";   // 휴가 종류 기본 정기휴가
   document.getElementById("rg-day-start").value = state.workCfg.start || "07:30";   // 기본 세팅으로 시작
   document.getElementById("rg-day-end").value   = state.workCfg.end || "17:00";
   document.getElementById("rg-day-break").value = Number(state.workCfg.breakMin) || 0;
@@ -1806,6 +1830,7 @@ async function applyRange() {
   const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
   const reason = document.getElementById("rg-reason").value.trim();
+  const annualKind = document.getElementById("rg-kind")?.value || "정기휴가";   // 휴가 종류(기본 정기휴가)
   const type = rangeType;
   if (!type || !RANGE_TYPES[type]) return setErr("유형을 선택하세요.");
   const def = RANGE_TYPES[type];
@@ -1892,7 +1917,7 @@ async function applyRange() {
     // 2) 유형별 장부 자동 기록 (중복 방지). ★취소·수정 동기화는 다음 단계(2단계-B) — 지금은 입력 시 기록만.
     if (def.ledger === "annual")
       await ledgerInsertDedup("annual_leave_ledger", empIds, dates, {},
-        (eid, dt) => ({ employee_id: eid, date: dt, days: 1, reason: reason || null, source: "schedule" }));
+        (eid, dt) => ({ employee_id: eid, date: dt, days: 1, reason: reason || null, source: "schedule", kind: annualKind }));
     else if (def.ledger === "leave_use")
       await ledgerInsertDedup("leave_ledger", empIds, dates, { direction: "use", category: "대체휴무" },
         (eid, dt) => ({ employee_id: eid, date: dt, direction: "use", category: "대체휴무", days: 1, reason: reason || null }));
@@ -2442,6 +2467,7 @@ function openAnnualSheet() {
   document.getElementById("an-start").value = t;
   document.getElementById("an-end").value = t;
   document.getElementById("an-days").value = "1";
+  document.getElementById("an-kind").value = "정기휴가";   // 기본 정기휴가
   document.getElementById("an-reason").value = "";
   const hint = document.getElementById("an-hint");
   hint.classList.remove("err");
@@ -2454,6 +2480,7 @@ async function saveAnnual() {
   const endS = document.getElementById("an-end").value;
   const days = parseFloat(document.getElementById("an-days").value);
   const reason = document.getElementById("an-reason").value.trim();
+  const kind = document.getElementById("an-kind").value || "정기휴가";
   const hint = document.getElementById("an-hint");
   const setErr = m => { hint.textContent = m; hint.classList.add("err"); };
   hint.classList.remove("err");
@@ -2465,7 +2492,7 @@ async function saveAnnual() {
   // 단일: 일수(반차 0.5 허용) / 기간: 각 날 1일씩
   const dates = single ? [startS] : eachDateInclusive(startS, endS);
   const rows = dates.map(dt => ({
-    employee_id: eid, date: dt, days: single ? days : 1, reason: reason || null, source: "manual",
+    employee_id: eid, date: dt, days: single ? days : 1, reason: reason || null, source: "manual", kind,
   }));
   const btn = document.getElementById("an-save");
   btn.disabled = true; btn.textContent = "저장 중…";
