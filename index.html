@@ -1035,9 +1035,9 @@ function renderWoPanel(weeks, weekAnom, m) {
     `<div class="wo-hd" onclick="toggleWoPanel()">
        <span class="wo-title">주별 휴무 체크</span>
        ${hasAnom ? `<span class="wo-badge">특이 ${distinct.size}명</span>` : `<span class="wo-badge ok">전원 정상</span>`}
-       <span id="wo-panel-arrow" class="wo-arrow">${hasAnom ? "▲" : "▼"}</span>
+       <span id="wo-panel-arrow" class="wo-arrow">▼</span>
      </div>
-     <div id="wo-panel-body" style="display:${hasAnom ? "" : "none"}">${rows}</div>`;
+     <div id="wo-panel-body" style="display:none">${rows}</div>`;
 }
 function toggleWoPanel() {
   const b = document.getElementById("wo-panel-body");
