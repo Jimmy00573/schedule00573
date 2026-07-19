@@ -1634,9 +1634,6 @@ async function applyRange() {
   if (!eids.length)     return setErr("직원을 선택하세요.");
   if (!startS || !endS) return setErr("시작일·종료일을 입력하세요.");
   if (startS > endS)    return setErr("시작일이 종료일보다 늦습니다.");
-  const first = dateStr(state.y, state.m, 1);
-  const last  = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
-  if (startS < first || endS > last) return setErr(`${state.y}년 ${state.m}월 내에서만 지정할 수 있습니다.`);
   const emps = state.employees.filter(e => eids.includes(String(e.id)));
   if (!emps.length) return setErr("대상 직원이 없습니다.");
   const reason = document.getElementById("rg-reason").value.trim();
@@ -1656,10 +1653,9 @@ async function applyRange() {
   }
   // 스케줄 memo: 근무/휴무는 사유만(빈값 허용), 특수 유형은 사유 없으면 유형명
   const memoBase = (type === "work" || type === "off") ? reason : (reason || def.label);
-  // 현재 달 범위이므로 일(day) 단위 순회
-  const sd = Number(startS.slice(8, 10)), ed = Number(endS.slice(8, 10));
-  const dates = [];
-  for (let d = sd; d <= ed; d++) dates.push(dateStr(state.y, state.m, d));
+  // 월·연 경계 넘는 기간 지원 — eachDateInclusive 재사용
+  const dates = eachDateInclusive(startS, endS);
+  if (dates.length > 92) return setErr("한 번에 최대 92일까지 지정할 수 있습니다.");
   const empIds = emps.map(e => String(e.id));
   const targets = [];
   empIds.forEach(eid => dates.forEach(dt => targets.push({ eid, date: dt })));
