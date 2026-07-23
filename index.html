@@ -53,7 +53,7 @@
   .legend span{display:inline-flex; align-items:center; gap:4px}
   .sw{width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,.08)}
   .sw.work{background:#fff}                     /* 근무=흰색(테두리로 표시) */
-  .sw.off{background:#e7ebef}                    /* 휴무=옅은 회색 */
+  .sw.off{background:#cbd5e1}                    /* 휴무=회색(셀과 동일 색, 대비 강화) */
   .sw.memo{background:#fff; position:relative}
   .sw.memo::after{content:""; position:absolute; right:1px; bottom:1px; width:5px; height:5px; border-radius:50%; background:var(--memo)}
 
@@ -161,7 +161,7 @@
   }
   td.cell.work{background:#fff}                 /* 근무=흰색(표시 안 함) */
   td.cell.unset{background:#fff}                /* 미설정=근무와 동일(흰색) */
-  td.cell.off{background:#e7ebef}               /* 휴무만 옅은 회색 */
+  td.cell.off{background:#cbd5e1}               /* 휴무만 회색(모바일 가시성 위해 흰 근무칸과 대비 강화) */
   /* 연속 사유 휴무 띠(2일+): 옅은 파랑, 내부 세로 경계 제거 → 하나의 띠로 연결 */
   td.cell.span{background:#eef2ff}
   td.cell.span-start, td.cell.span-mid{border-right-color:transparent}
