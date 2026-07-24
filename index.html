@@ -122,9 +122,6 @@
   thead th .dhol{font-size:9px; line-height:1.1; height:11px; color:var(--sun); font-weight:600; max-width:30px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   thead th.today{background:#eff6ff; box-shadow:inset 0 3px 0 #3b82f6, inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
   thead th.today .dnum{font-weight:700}
-  /* 근무자 보기로 고른 날: 아래쪽 회색 선(오늘=위쪽 파랑 선과 방향·색으로 구분). 오늘 칸엔 안 붙임 */
-  thead th.pickd{background:#f1f5f9; box-shadow:inset 0 -3px 0 #64748b}
-  thead th.pickd .dnum{font-weight:700}
 
   /* 이름 열(좌측 고정) */
   th.corner{
@@ -197,6 +194,9 @@
   tfoot td.name{z-index:9; background:#eef2f7; color:var(--sub); font-weight:600}
   tfoot tr.off-row td{color:var(--sub); font-weight:600}
   tfoot td.tcol{background:#eff6ff; box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
+  /* 근무 인원 숫자 = 그 날 근무자 보기 버튼 */
+  tfoot td.wpick{cursor:pointer; touch-action:manipulation}
+  tfoot td.pickd{background:#e2e8f0; box-shadow:inset 0 -3px 0 #64748b}   /* 선택된 날(오늘 파랑과 색·방향으로 구분) */
 
   /* 메모 팝업 */
   .sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; z-index:40}
@@ -917,7 +917,6 @@ function render() {
     let cls = (wd===0?"sun":wd===6?"sat":"") + " evth";
     if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
     if (isToday(y,m,d)) cls += " today";
-    if (crewPickDate && crewPickDate.y===y && crewPickDate.m===m && crewPickDate.d===d && !isToday(y,m,d)) cls += " pickd";   // 근무자 보기로 고른 날(오늘은 today 강조 유지)
     if (hasEvt(ds)) cls += " ecol";
     const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";   // 긴 대체공휴일명 축약(나머지는 CSS 말줄임)
     const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
@@ -1019,9 +1018,12 @@ function render() {
     for (const emp of state.employees){
       (cellStatus(emp,y,m,d).status==="off") ? o++ : w++;
     }
+    const ds = dateStr(y,m,d);
     let t = isToday(y,m,d) ? " tcol" : "";
-    if (hasEvt(dateStr(y,m,d))) t += " ecol";
-    workRow += `<td class="${t.trim()}">${w}</td>`;
+    if (hasEvt(ds)) t += " ecol";
+    // 근무 인원 숫자 = 그 날 근무자 보기 버튼(클릭 토글). 선택 중이면 강조.
+    const wsel = (crewPickDate && crewPickDate.y===y && crewPickDate.m===m && crewPickDate.d===d) ? " pickd" : "";
+    workRow += `<td class="wpick${t}${wsel}" data-ds="${ds}">${w}</td>`;
     offRow  += `<td class="${t.trim()}">${o}</td>`;
   }
   workRow += `</tr>`; offRow += `</tr>`;
@@ -1088,8 +1090,8 @@ function renderLeaveBar() {
 }
 
 /* ── 근무 인원 바: 어제·오늘·내일(보는 달에 오늘 포함 시만) + 선택 날짜 — cellStatus 재사용 ── */
-let crewPickDate = null;   // 날짜 헤더 클릭으로 고른 날 {y,m,d} 또는 null(달 이동 시 해제)
-// 날짜 헤더 클릭 → 그 날 근무자 줄 토글(같은 날 다시 누르면 해제). 공지 시트는 기존대로 별도로 열림.
+let crewPickDate = null;   // 하단 근무 인원 숫자 클릭으로 고른 날 {y,m,d} 또는 null(달 이동 시 해제)
+// 근무 인원 숫자(tfoot 근무 행) 클릭 → 그 날 근무자 줄 토글(같은 날 다시 누르면 해제).
 function toggleCrewPick(ds) {
   const [y, m, d] = ds.split("-").map(Number);
   const same = crewPickDate && crewPickDate.y === y && crewPickDate.m === m && crewPickDate.d === d;
@@ -2756,8 +2758,10 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
 
 // 셀 클릭 → 근무 조회(수정 불가). 입력은 기간 폼으로 일원화(B-2). 헤더/드래그 입력 제거.
 document.getElementById("grid").addEventListener("click", (e) => {
-  const evtTh = e.target.closest("th[data-evt-date]");   // 날짜 헤더/공지 라벨 → 근무자 줄 토글 + 전체 공지 팝업
-  if (evtTh) { const ds = evtTh.dataset.evtDate; toggleCrewPick(ds); openEventPopup(ds); return; }
+  const evtTh = e.target.closest("th[data-evt-date]");   // 날짜 헤더/공지 라벨 → 전체 공지 팝업
+  if (evtTh) { openEventPopup(evtTh.dataset.evtDate); return; }
+  const wTd = e.target.closest("tfoot tr.work-row td[data-ds]");   // 하단 근무 인원 숫자 → 그 날 근무자 줄 토글
+  if (wTd) { toggleCrewPick(wTd.dataset.ds); return; }
   const nameTd = e.target.closest("td.name[data-eid]");   // 직원 이름 → 휴무 종합(조회)
   if (nameTd) { openCrewSummary(nameTd.dataset.eid); return; }
   const td = e.target.closest("td.cell");
