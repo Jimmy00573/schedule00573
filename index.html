@@ -1012,15 +1012,18 @@ function render() {
       const timeStr = (adj && state.isAdmin)
         ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
         : "";
-      const titleText = timeStr ? timeStr + (cs.memo ? ` · ${cs.memo}` : "") : (cs.memo || "");
+      // 시간 조정된 날은 메모도 시간 사정을 담고 있어 게스트에겐 숨김(점·툴팁·data-memo).
+      // ★시간 조정 없는 날의 일반 메모는 게스트에게도 그대로. 띠 사유 라벨(span-label)도 그대로.
+      const memoShown = (adj && !state.isAdmin) ? "" : cs.memo;
+      const titleText = timeStr ? timeStr + (memoShown ? ` · ${memoShown}` : "") : (memoShown || "");
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
-        + (cs.memo ? ` data-memo="${esc(cs.memo)}"` : "")
+        + (memoShown ? ` data-memo="${esc(memoShown)}"` : "")
         + (titleText ? ` title="${esc(titleText)}"` : "");
       // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 단일 memo: 점
       const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
         : sp ? ""
         : (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
-        : (cs.memo ? `<span class="memo"></span>` : "");
+        : (memoShown ? `<span class="memo"></span>` : "");
       row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
     tbody += row + `</tr>`;
@@ -1705,7 +1708,9 @@ function openEditSheet(eid, date, name) {
   document.getElementById("edit-status").textContent = (adj && state.isAdmin)
     ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
     : `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
-  document.getElementById("edit-memo").textContent = cs.memo || "—";
+  // 시간 조정된 날은 메모도 게스트에겐 숨김(셀 툴팁과 동일 규칙). 조정 없는 날 메모는 그대로.
+  const memoShown = (adj && !state.isAdmin) ? "" : cs.memo;
+  document.getElementById("edit-memo").textContent = memoShown || "—";
   document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
   openSheetEl("edit-sheet");
 }
