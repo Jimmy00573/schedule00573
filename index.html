@@ -428,6 +428,7 @@
     <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
     <button class="btn adm-only" id="hol-btn" style="display:none">휴무일</button>
+    <button class="btn adm-only" id="dtx-btn" style="display:none">근무자 텍스트</button>
     <span class="hol-count" id="hol-count"></span>
   </div>
 
@@ -776,6 +777,23 @@
   </div>
 </div>
 
+<!-- 일자별 근무자 텍스트(관리자 전용, 공유용) — 조회만, 저장 없음 -->
+<div class="modal" id="dtx-modal">
+  <div class="modal-hd"><h3>근무자 텍스트</h3><button class="x" id="dtx-close">✕</button></div>
+  <div class="modal-bd">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px">
+      <label for="dtx-date" style="flex:0 0 auto; font-size:13px; font-weight:600; color:var(--sub)">날짜</label>
+      <input type="date" id="dtx-date" style="flex:1; min-width:0; padding:10px; border:1px solid var(--border); border-radius:9px; font-size:15px; font-family:inherit; box-sizing:border-box">
+    </div>
+    <textarea id="dtx-text" rows="4" style="width:100%; padding:11px; border:1px solid var(--border); border-radius:9px; font-size:15px; font-family:inherit; line-height:1.6; box-sizing:border-box; resize:vertical"></textarea>
+    <p class="note" id="dtx-note">근무자만 나옵니다(휴무자 제외). 복사 전에 내용을 직접 고쳐도 됩니다.</p>
+  </div>
+  <div class="modal-ft">
+    <button class="btn2 ghost" id="dtx-done">닫기</button>
+    <button class="btn2 pri" id="dtx-copy">복사</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
@@ -990,11 +1008,9 @@ function render() {
       if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
       if (sp) cls += " span span-" + sp;
       if (_selCells.has(emp.id + "|" + dateStr(y,m,d))) cls += " selected";
-      // 게스트는 출근·퇴근만, 관리자는 휴게·실근무까지
-      const timeStr = adj
-        ? (state.isAdmin
-            ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
-            : `출근 ${adj.day_start} · 퇴근 ${adj.day_end}`)
+      // 시간 조정은 관리자 전용 — 게스트에겐 툴팁에도 시간 안 나감(셀 숫자와 일관)
+      const timeStr = (adj && state.isAdmin)
+        ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
         : "";
       const titleText = timeStr ? timeStr + (cs.memo ? ` · ${cs.memo}` : "") : (cs.memo || "");
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
@@ -1003,7 +1019,7 @@ function render() {
       // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 단일 memo: 점
       const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
         : sp ? ""
-        : adj ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+        : (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
         : (cs.memo ? `<span class="memo"></span>` : "");
       row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
@@ -1142,6 +1158,50 @@ function renderTodayCrew() {
     + rowFor("내일", "tc-next", next.getFullYear(), next.getMonth() + 1, next.getDate())
     + pickHtml;
   el.style.display = "flex";
+}
+
+/* ── 일자별 근무자 텍스트(관리자 전용, 공유용) ──
+   조회 전용 — 저장·수정 없음. 근무자 판정은 cellStatus 재사용(하단 근무 인원 집계와 같은 기준).
+   ★state.patterns·state.overrides는 '보고 있는 달'만 로드돼 있어 다른 달은 계산 불가
+     → 날짜 입력을 그 달로 제한(min/max)하고, 범위 밖이면 안내문을 넣는다. */
+function dtxBuild(ds) {
+  const [y, m, d] = String(ds || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  if (y !== state.y || m !== state.m)
+    return `※ ${state.y}년 ${state.m}월 날짜만 만들 수 있습니다(달을 옮긴 뒤 다시 열어주세요).`;
+  const working = state.employees.filter(e => cellStatus(e, y, m, d).status !== "off");   // 휴무자 제외
+  const head = `${m}월 ${d}일(${WD[weekday(y,m,d)]}) 근무 ${working.length}명`;
+  return head + "\n" + (working.length ? working.map(e => e.name).join(", ") : "(전원 휴무)");
+}
+function dtxRefresh() {
+  document.getElementById("dtx-text").value = dtxBuild(document.getElementById("dtx-date").value);
+}
+function openDtxModal() {
+  if (!state.isAdmin) return;   // 관리자 전용
+  const inp = document.getElementById("dtx-date");
+  inp.min = dateStr(state.y, state.m, 1);
+  inp.max = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
+  // 기본 오늘 — 보고 있는 달이 이번 달이 아니면 그 달 1일
+  inp.value = (state.y === today.y && state.m === today.m) ? dateStr(today.y, today.m, today.d) : inp.min;
+  dtxRefresh();
+  document.getElementById("dtx-modal").classList.add("open");
+}
+function closeDtxModal() { document.getElementById("dtx-modal").classList.remove("open"); }
+async function dtxCopy() {
+  const ta = document.getElementById("dtx-text");
+  const btn = document.getElementById("dtx-copy");
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(ta.value); ok = true; }
+  } catch (e) { ok = false; }
+  if (!ok) {   // 폴백: 선택 후 execCommand(구형 브라우저·비보안 컨텍스트)
+    try {
+      ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+      ok = document.execCommand("copy");
+    } catch (e2) { ok = false; }
+  }
+  btn.textContent = ok ? "복사됨 ✓" : "복사 실패";
+  setTimeout(() => { btn.textContent = "복사"; }, 1200);
 }
 
 /* ── 근무시간(app_settings) ── */
@@ -1641,11 +1701,9 @@ function openEditSheet(eid, date, name) {
   document.getElementById("edit-title").textContent = name;
   document.getElementById("edit-date").textContent = `${date} (${WD[weekday(y,m,d)]})`;
   const adj = (ov && ov.day_start && ov.day_end) ? ov : null;
-  // 게스트는 출근·퇴근만, 관리자는 휴게·실근무까지 (셀 툴팁과 동일 규칙)
-  document.getElementById("edit-status").textContent = adj
-    ? (state.isAdmin
-        ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
-        : `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end}`)
+  // 시간 조정은 관리자 전용 — 게스트는 근무/휴무만 (셀 툴팁과 동일 규칙)
+  document.getElementById("edit-status").textContent = (adj && state.isAdmin)
+    ? `상태: 근무 (시간 조정) · 출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
     : `상태: ${cs.status === "off" ? "휴무" : "근무"}`;
   document.getElementById("edit-memo").textContent = cs.memo || "—";
   document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
@@ -2796,6 +2854,13 @@ document.getElementById("rg-start").addEventListener("change", (e) => {   // 시
 });
 ["rg-day-start", "rg-day-end", "rg-day-break"].forEach(id =>   // 시간 조정 실근무 실시간 계산
   document.getElementById(id).addEventListener("input", updateDayCalc));
+
+// 일자별 근무자 텍스트(관리자 전용, 공유용)
+document.getElementById("dtx-btn").onclick = openDtxModal;
+document.getElementById("dtx-close").onclick = closeDtxModal;
+document.getElementById("dtx-done").onclick = closeDtxModal;
+document.getElementById("dtx-copy").onclick = dtxCopy;
+document.getElementById("dtx-date").addEventListener("change", dtxRefresh);   // 날짜 바꾸면 재생성
 
 // 회사 자체 휴무일
 document.getElementById("hol-btn").onclick = openHolSheet;
