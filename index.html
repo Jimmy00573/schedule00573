@@ -182,6 +182,11 @@
   td.cell.tail.tail-na{background:#eef2f6; cursor:default}   /* 그 날 재직 아님(퇴사) — 클릭 불가 */
   tfoot td.tail{background:#f1f5f9; color:#94a3b8}
   .tail-first{border-left:2px solid #94a3b8 !important}
+  /* 패턴 편집 — 대상 월 선택 줄 */
+  .pat-mo{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
+  .pat-mo-lb{min-width:130px;text-align:center;font-size:15px;font-weight:700;display:flex;flex-direction:column;gap:2px}
+  .pat-mo-tag{font-size:11px;font-weight:500;color:#64748b}
+  .pat-empty{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;line-height:1.5}
   td.cell.ecol > *{position:relative; z-index:1}
   thead th.ecol{background:#fffbeb}
   thead th.evth{cursor:pointer}
@@ -781,9 +786,16 @@
 <div class="modal" id="pat-modal">
   <div class="modal-hd"><h3 id="pat-title">휴무 패턴</h3><button class="x" id="pat-close">✕</button></div>
   <div class="modal-bd">
+    <!-- ★대상 월 — 저장이 이 달로 들어간다. 근무표가 보고 있는 달과 별개(다음 달을 미리 짤 수 있게). -->
+    <div class="pat-mo">
+      <button class="btn2 ghost" id="pat-prev">◀</button>
+      <div class="pat-mo-lb"><span id="pat-mo-txt">–</span><span id="pat-mo-tag" class="pat-mo-tag"></span></div>
+      <button class="btn2 ghost" id="pat-next">▶</button>
+    </div>
+    <div id="pat-empty" class="pat-empty" style="display:none"></div>
     <button class="btn2 ghost" id="pat-copy" style="display:none;width:100%;margin-bottom:12px">⬇ 전월 패턴 복사</button>
     <div id="pat-list"></div>
-    <p class="note">체크 = 그 요일 휴무. <b>요일 헤더</b>나 <b>직원 이름</b>을 누르면 그 줄 전체가 일괄 토글됩니다. 저장하면 이 달 모든 재직 직원의 휴무 패턴이 설정됩니다.</p>
+    <p class="note">체크 = 그 요일 휴무. <b>요일 헤더</b>나 <b>직원 이름</b>을 누르면 그 줄 전체가 일괄 토글됩니다. 저장하면 <b>위에 고른 달</b>의 재직 직원 휴무 패턴이 설정됩니다.</p>
   </div>
   <div class="modal-ft">
     <button class="btn2 ghost" id="pat-cancel">닫기</button>
@@ -2460,18 +2472,55 @@ async function empMove(id, dir) {
   } catch (e) { alert("순서 변경 실패: " + (e.message || e)); }
 }
 
-/* ── 패턴 편집 ── */
+/* ── 패턴 편집 ──
+   ★대상 월을 따로 고른다. 예전엔 저장이 `month: ymStr(state.y, state.m)`로 **보고 있는 달에 고정**돼
+     다음 달 패턴을 미리 짤 수 없었다. 근무표 끝에 다음 달 초를 이어 붙인 뒤(faa7402)로는
+     그 달 패턴이 없으면 그 칸들이 "패턴 없음 = 전부 근무"로 계산돼서 꼭 필요해졌다.
+   ★_patY/_patM이 저장 대상이다. state.y/state.m을 저장에 쓰지 말 것. */
 const PAT_WD = [[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"],[0,"일"]];
+let _patY = 0, _patM = 0;
+let _patCur = {};   // 대상 월의 기존 패턴 (eid → off_weekdays)
+
 function openPatModal() {
-  document.getElementById("pat-title").textContent = `${state.y}년 ${state.m}월 휴무 패턴`;
-  renderPatList(null);
-  // 그 달 패턴이 하나도 없을 때만 '전월 복사' 노출
-  const hasAny = Object.keys(state.patterns).length > 0;
-  document.getElementById("pat-copy").style.display = hasAny ? "none" : "";
   document.getElementById("pat-modal").classList.add("open");
+  patGoMonth(state.y, state.m);   // 기본값 = 보고 있는 달
 }
+// 대상 월 이동 — 그 달 패턴을 새로 조회해 그린다.
+async function patGoMonth(y, m) {
+  if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+  _patY = y; _patM = m;
+  document.getElementById("pat-title").textContent = "휴무 패턴";
+  document.getElementById("pat-mo-txt").textContent = `${y}년 ${m}월`;
+  const isCur = (y === state.y && m === state.m);
+  document.getElementById("pat-mo-tag").textContent = isCur ? "지금 보는 달" : "";
+  const list = document.getElementById("pat-list");
+  list.innerHTML = `<div class="msg">불러오는 중…</div>`;
+  document.getElementById("pat-copy").style.display = "none";
+  document.getElementById("pat-empty").style.display = "none";
+  try {
+    const { data, error } = await sb.from("monthly_patterns").select("*").eq("month", ymStr(y, m));
+    if (error) throw error;
+    _patCur = {};
+    (data || []).forEach(r => { _patCur[r.employee_id] = r.off_weekdays; });
+  } catch (e) {
+    _patCur = {};
+    list.innerHTML = `<div class="msg err">패턴 조회 실패: ${esc(e.message || e)}</div>`;
+    return;
+  }
+  renderPatList(null);
+  // 그 달 패턴이 하나도 없으면 안내 + '전월 복사' 노출(어느 달에서 가져오는지 이름으로 밝힌다)
+  const hasAny = Object.keys(_patCur).length > 0;
+  let pv = m - 1, pvy = y; if (pv < 1) { pv = 12; pvy--; }
+  document.getElementById("pat-copy").textContent = `⬇ ${pvy === y ? "" : pvy + "년 "}${pv}월 패턴 복사`;
+  document.getElementById("pat-copy").style.display = hasAny ? "none" : "";
+  const empEl = document.getElementById("pat-empty");
+  empEl.textContent = hasAny ? "" : `${m}월 패턴이 아직 없습니다. 아래에서 직접 체크하거나 ${pv}월 것을 복사해 고치세요.`;
+  empEl.style.display = hasAny ? "none" : "";
+}
+// 대상 월 기준 재직자 — ★퇴사자는 그 달에 없으므로 패턴 등록 대상에서 빠진다(empActiveInMonth).
+function patEmps() { return state.allEmployees.filter(e => empActiveInMonth(e, _patY, _patM)); }
 function renderPatList(prefill) {
-  const emps = state.employees;   // 재직만
+  const emps = patEmps();
   const head = `<div class="pat-row pat-head"><div class="pn"></div>${
     PAT_WD.map(([v,l]) => {
       const c = v === 6 ? ' style="color:var(--sat)"' : v === 0 ? ' style="color:var(--sun)"' : "";
@@ -2479,7 +2528,7 @@ function renderPatList(prefill) {
     }).join("")}</div>`;
   const rows = emps.map(e => {
     const cur = (prefill && prefill[e.id]) ? prefill[e.id]
-      : (state.patterns[e.id] ? state.patterns[e.id].off_weekdays : []);
+      : (_patCur[e.id] || []);   // ★대상 월의 기존 패턴(보고 있는 달의 state.patterns가 아니다)
     return `<div class="pat-row"><div class="pn pat-emp" data-eid="${e.id}">${esc(e.name)}</div>${
       PAT_WD.map(([v]) =>
         `<div class="pc"><input type="checkbox" data-eid="${e.id}" data-wd="${v}" ${cur.includes(v) ? "checked" : ""}></div>`
@@ -2495,7 +2544,7 @@ function patToggleBoxes(boxes) {
   arr.forEach(cb => { cb.checked = !allChecked; });
 }
 async function patCopyPrev() {
-  let py = state.y, pm = state.m - 1;
+  let py = _patY, pm = _patM - 1;   // ★대상 월의 전달(보고 있는 달 기준이 아니다)
   if (pm < 1) { pm = 12; py--; }
   const { data, error } = await sb.from("monthly_patterns").select("*").eq("month", ymStr(py, pm));
   if (error) { alert("전월 조회 실패: " + error.message); return; }
@@ -2504,16 +2553,18 @@ async function patCopyPrev() {
   data.forEach(p => { map[p.employee_id] = p.off_weekdays; });
   renderPatList(map);
   document.getElementById("pat-copy").style.display = "none";
+  document.getElementById("pat-empty").textContent = `${ymStr(py,pm)} 패턴을 가져왔습니다. 고친 뒤 [저장]을 눌러야 반영됩니다.`;
 }
 async function savePat() {
-  const emps = state.employees;
+  const emps = patEmps();   // 대상 월 재직자
   const map = {};
   emps.forEach(e => { map[e.id] = []; });
   document.querySelectorAll('#pat-list input[type="checkbox"]:checked').forEach(cb => {
     if (map[cb.dataset.eid]) map[cb.dataset.eid].push(Number(cb.dataset.wd));
   });
+  // ★month는 화면에서 고른 대상 월. state.y/state.m을 쓰면 다른 달 패턴을 덮어쓴다.
   const rows = emps.map(e => ({
-    employee_id: e.id, month: ymStr(state.y, state.m),
+    employee_id: e.id, month: ymStr(_patY, _patM),
     off_weekdays: map[e.id].sort((a, b) => a - b),
   }));
   const btn = document.getElementById("pat-save");
@@ -2522,6 +2573,8 @@ async function savePat() {
     const { error } = await sb.from("monthly_patterns").upsert(rows, { onConflict: "employee_id,month" });
     if (error) throw error;
     document.getElementById("pat-modal").classList.remove("open");
+    // ★goMonth가 loadMonth를 다시 부르므로 state.patterns·patternsNext가 함께 갱신된다
+    //   → 근무표에 이어 붙인 다음 달 칸도 새 패턴대로 즉시 다시 계산된다.
     await goMonth(state.y, state.m);
   } catch (e) {
     alert("저장 실패: " + (e.message || e));
@@ -3009,6 +3062,9 @@ document.getElementById("pat-close").onclick = () => document.getElementById("pa
 document.getElementById("pat-cancel").onclick = () => document.getElementById("pat-modal").classList.remove("open");
 document.getElementById("pat-copy").onclick = patCopyPrev;
 document.getElementById("pat-save").onclick = savePat;
+// 대상 월 이동 — 저장은 여기서 고른 달로 들어간다(보고 있는 달과 별개)
+document.getElementById("pat-prev").onclick = () => patGoMonth(_patY, _patM - 1);
+document.getElementById("pat-next").onclick = () => patGoMonth(_patY, _patM + 1);
 // 일괄 토글: 요일 헤더 클릭 → 전 직원 그 요일 / 직원 이름 클릭 → 그 직원 요일 전체 (DOM만, 저장은 저장버튼)
 document.getElementById("pat-list").addEventListener("click", (e) => {
   const wd = e.target.closest(".pat-hd-wd");
