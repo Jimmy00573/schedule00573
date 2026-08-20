@@ -1210,19 +1210,61 @@ function renderTodayCrew() {
 
 /* ── 일자별 근무자 텍스트(관리자 전용, 공유용) ──
    조회 전용 — 저장·수정 없음. 근무자 판정은 cellStatus 재사용(하단 근무 인원 집계와 같은 기준).
-   ★state.patterns·state.overrides는 '보고 있는 달'만 로드돼 있어 다른 달은 계산 불가
-     → 날짜 입력을 그 달로 제한(min/max)하고, 범위 밖이면 안내문을 넣는다. */
+   ★state.patterns·state.overrides는 '보고 있는 달'만 로드된다. 그래서 다른 달 날짜는
+     _dtxCache에 그 달 자료를 따로 받아 두고, 계산 직전에 잠깐 끼워 넣었다가 되돌린다.
+     ※끼우는 구간에 await가 없다(cellStatus는 동기) — 화면이 보고 있는 달 데이터는 오염되지 않는다.
+     ※필요한 달만 그때 받는다(인접 달 미리 로드 안 함) — 대부분은 한 달 안에서 끝나서 헛 조회가 된다. */
+const _dtxCache = {};   // 'YYYY-MM' → { patterns, overrides }  (모달을 열어 다른 달을 뽑을 때만 채워짐)
+
+// 그 달 자료 확보. 보고 있는 달이면 state를 그대로 쓰므로 null을 돌려준다.
+async function dtxEnsureMonth(ym) {
+  if (ym === ymStr(state.y, state.m)) return null;
+  if (_dtxCache[ym]) return _dtxCache[ym];
+  const [y, m] = ym.split("-").map(Number);
+  const first = dateStr(y, m, 1), last = dateStr(y, m, daysInMonth(y, m));
+  const [pat, ovr] = await Promise.all([
+    sb.from("monthly_patterns").select("*").eq("month", ym),
+    sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
+  ]);
+  if (pat.error) throw pat.error;
+  if (ovr.error) throw ovr.error;
+  const patterns = {}; (pat.data || []).forEach(x => { patterns[x.employee_id] = x; });
+  const overrides = {}; (ovr.data || []).forEach(x => { overrides[x.employee_id + "|" + x.date] = x; });
+  _dtxCache[ym] = { patterns, overrides };
+  return _dtxCache[ym];
+}
+// 기간에 필요한 달을 한 번에 확보. 실패하면 false(호출부가 중단).
+async function dtxEnsureRange(dates) {
+  const cur = ymStr(state.y, state.m);
+  const need = [...new Set(dates.map(ds => ds.slice(0, 7)))].filter(ym => ym !== cur && !_dtxCache[ym]);
+  if (!need.length) return true;
+  dtxMsg(`다른 달(${need.join(", ")}) 자료를 불러오는 중…`);
+  try { await Promise.all(need.map(dtxEnsureMonth)); dtxMsg(""); return true; }
+  catch (e) { dtxMsg("다른 달 자료를 불러오지 못했습니다: " + (e.message || e), true); return false; }
+}
+
 function dtxBuild(ds) {
   const [y, m, d] = String(ds || "").split("-").map(Number);
   if (!y || !m || !d) return "";
-  if (y !== state.y || m !== state.m)
-    return `※ ${state.y}년 ${state.m}월 날짜만 만들 수 있습니다(달을 옮긴 뒤 다시 열어주세요).`;
-  // 휴무자 제외 + ★퇴사일 지난 사람 제외(집계와 같은 기준)
-  const working = state.employees.filter(e => empActiveOnDate(e, ds) && cellStatus(e, y, m, d).status !== "off");
-  const head = `${m}월 ${d}일(${WD[weekday(y,m,d)]}) 근무 ${working.length}명`;
-  return head + "\n" + (working.length ? working.map(e => e.name).join(", ") : "(전원 휴무)");
+  const ym = ymStr(y, m);
+  const other = ym !== ymStr(state.y, state.m);
+  const cache = other ? _dtxCache[ym] : null;
+  if (other && !cache) return `※ ${y}년 ${m}월 자료가 없습니다(다시 [생성]을 눌러주세요).`;
+  // ★다른 달이면 state를 잠깐 바꿔 끼우고 곧바로 되돌린다. 이 사이에 await가 없어 안전하다.
+  const savedP = state.patterns, savedO = state.overrides;
+  if (cache) { state.patterns = cache.patterns; state.overrides = cache.overrides; }
+  try {
+    // ★그 날 기준으로 직원을 고른다 — state.employees는 '보고 있는 달' 기준이라 다른 달엔 못 쓴다.
+    //   empActiveOnDate가 active·퇴사일을 함께 보므로 보고 있는 달에서도 결과가 같다.
+    const working = state.allEmployees.filter(e => empActiveOnDate(e, ds) && cellStatus(e, y, m, d).status !== "off");
+    const head = `${m}월 ${d}일(${WD[weekday(y,m,d)]}) 근무 ${working.length}명`;
+    return head + "\n" + (working.length ? working.map(e => e.name).join(", ") : "(전원 휴무)");
+  } finally {
+    state.patterns = savedP; state.overrides = savedO;
+  }
 }
 const DTX_SEP = "\n\n";   // 날짜 사이 빈 줄 하나
+const DTX_MAX_DAYS = 62;   // 한 번에 만들 수 있는 일수(달 경계용으로 두 달이면 충분)
 
 // 모달 안 안내 메시지(잠시 뒤 사라짐). 저장 없는 화면이라 alert 대신 인라인.
 let _dtxMsgTimer = null;
@@ -1242,32 +1284,31 @@ function dtxHasDate(text, ds) {
   return text.split("\n").some(line => line.startsWith(key));
 }
 /* 시작~종료 날짜 목록. 문제가 있으면 안내 후 null.
-   ★그 달 범위 밖은 막는다 — state.patterns·overrides가 보고 있는 달만 로드돼 있어
-     다른 달은 조용히 틀린 명단이 나온다(min/max로도 막지만 직접 입력 대비 이중 확인). */
+   ★달 제한은 없앴다(월 경계 지원) — 다른 달 자료는 dtxEnsureRange가 그때 받아 온다.
+     대신 기간 상한(DTX_MAX_DAYS)만 둔다. 길수록 달마다 조회가 늘기 때문. */
 function dtxRangeDates() {
   const s = document.getElementById("dtx-date").value;
   const e = document.getElementById("dtx-date2").value || s;
   if (!s || !e) { dtxMsg("날짜를 선택해주세요.", true); return null; }
-  const min = dateStr(state.y, state.m, 1);
-  const max = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
-  if (s < min || s > max || e < min || e > max) {
-    dtxMsg(`${state.y}년 ${state.m}월 날짜만 만들 수 있습니다(달을 옮긴 뒤 다시 열어주세요).`, true);
-    return null;
-  }
   if (e < s) { dtxMsg("종료일이 시작일보다 빠릅니다.", true); return null; }
-  return eachDateInclusive(s, e);   // 기존 헬퍼 재사용
+  // ★달 제한을 없앴다(월 경계 지원). 대신 기간 상한을 둔다 — 길수록 달마다 조회가 늘어난다.
+  const dates = eachDateInclusive(s, e);   // 기존 헬퍼 재사용
+  if (dates.length > DTX_MAX_DAYS) { dtxMsg(`한 번에 ${DTX_MAX_DAYS}일까지 만들 수 있습니다(선택 ${dates.length}일).`, true); return null; }
+  return dates;
 }
 // 생성: 기간 전체를 새로 채움(기존 내용 교체)
-function dtxMake() {
+async function dtxMake() {
   const dates = dtxRangeDates();
   if (!dates) return;
+  if (!(await dtxEnsureRange(dates))) return;   // 다른 달이 섞였으면 먼저 받아 둔다
   document.getElementById("dtx-text").value = dates.map(dtxBuild).join(DTX_SEP);
   dtxMsg(`${dates.length}일치 만들었습니다.`);
 }
 // 추가: 기존 내용 유지하고 아래에 덧붙임. 이미 있는 날짜는 건너뜀.
-function dtxAppend() {
+async function dtxAppend() {
   const dates = dtxRangeDates();
   if (!dates) return;
+  if (!(await dtxEnsureRange(dates))) return;
   const ta = document.getElementById("dtx-text");
   const cur = ta.value.replace(/\s+$/, "");
   const fresh = dates.filter(ds => !dtxHasDate(cur, ds));
@@ -1287,11 +1328,11 @@ function dtxClear() {
 function openDtxModal() {
   if (!state.isAdmin) return;   // 관리자 전용
   const s = document.getElementById("dtx-date"), e2 = document.getElementById("dtx-date2");
-  const min = dateStr(state.y, state.m, 1);
-  const max = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
-  // 기본 시작=종료=오늘 — 보고 있는 달이 이번 달이 아니면 그 달 1일(기존 동작 유지)
-  const def = (state.y === today.y && state.m === today.m) ? dateStr(today.y, today.m, today.d) : min;
-  [s, e2].forEach(inp => { inp.min = min; inp.max = max; inp.value = def; });
+  // ★달 제한(min/max)을 걸지 않는다 — 월 경계를 넘는 주도 한 번에 만들 수 있다.
+  //   다른 달 자료는 [생성]·[추가]를 누를 때 그때 받아 온다(dtxEnsureRange).
+  const def = (state.y === today.y && state.m === today.m)
+    ? dateStr(today.y, today.m, today.d) : dateStr(state.y, state.m, 1);
+  [s, e2].forEach(inp => { inp.removeAttribute("min"); inp.removeAttribute("max"); inp.value = def; });
   document.getElementById("dtx-text").value = dtxBuild(def);   // 열면 그 날 하루치(기존과 동일)
   dtxMsg("");
   document.getElementById("dtx-modal").classList.add("open");
