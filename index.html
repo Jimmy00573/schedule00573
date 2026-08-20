@@ -175,6 +175,13 @@
   /* 전체 공지 이벤트 컬럼(옅은 배경 띠 + 라벨 행) — 근무 표시 안 가리게 tcol 패턴 재사용 */
   td.cell.ecol{box-shadow:inset 2px 0 0 #fcd34d, inset -2px 0 0 #fcd34d}
   td.cell.ecol::after{content:""; position:absolute; inset:0; background:rgba(245,158,11,.08); pointer-events:none}
+  /* 다음 달 초 이어 붙인 칸 — 이번 달과 헷갈리지 않게 흐리게 + 경계에 굵은 선 */
+  th.tailh{background:#f1f5f9; color:#94a3b8}
+  td.cell.tail{background:#f8fafc}
+  td.cell.tail.off{background:#dbe2ea}        /* 휴무는 이번 달(#cbd5e1)보다 살짝 연하게 — 같은 회색 계열 유지 */
+  td.cell.tail.tail-na{background:#eef2f6; cursor:default}   /* 그 날 재직 아님(퇴사) — 클릭 불가 */
+  tfoot td.tail{background:#f1f5f9; color:#94a3b8}
+  .tail-first{border-left:2px solid #94a3b8 !important}
   td.cell.ecol > *{position:relative; z-index:1}
   thead th.ecol{background:#fffbeb}
   thead th.evth{cursor:pointer}
@@ -880,6 +887,11 @@ const state = {
   summerDays: 5,     // 여름휴가 부여(전체 공통, app_settings.summer_leave_days 폴백)
   regularDays: 15,   // 정기휴가 부여(전체 공통, app_settings.regular_leave_days 폴백)
   annualExpanded: new Set(),  // 연차 펼친 직원 id
+  // ★근무표 끝에 이어 붙이는 "다음 달 초" 칸용. monthly_patterns는 달마다 다른데
+  //   state.patterns는 employee_id만 키로 써서 한 통에 섞으면 덮어쓴다 → 다음 달 것은 여기 따로 둔다.
+  tail: [],           // 이어 붙일 다음 달 날짜 [{y,m,d,ds}]
+  patternsNext: {},   // 다음 달 monthly_patterns (eid → 행)
+  nextYm: "",         // 그 다음 달 "YYYY-MM" (이어 붙일 칸이 없으면 "")
 };
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -889,14 +901,20 @@ async function loadMonth(y, m) {
   const ym = ymStr(y,m);
   const first = dateStr(y,m,1);
   const last  = dateStr(y,m,daysInMonth(y,m));
-  const [emp, pat, ovr, hol, evt, etc] = await Promise.all([
+  // ★근무표 끝에 이어 붙일 다음 달 초 며칠 — 그 날짜들의 자료도 같이 받아야 계산·저장이 맞는다.
+  //   조회 상한만 늘리면 되므로 쿼리 수는 그대로다(패턴만 달 단위라 한 번 더 부른다).
+  const tail = tailDaysOf(y, m);
+  const lastQ = tail.length ? tail[tail.length - 1].ds : last;
+  const nextYm = tail.length ? ymStr(tail[0].y, tail[0].m) : "";
+  const [emp, pat, ovr, hol, evt, etc, patN] = await Promise.all([
     sb.from("employees").select("*").order("display_order"),
     sb.from("monthly_patterns").select("*").eq("month", ym),
-    sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
-    sb.from("holidays").select("date,name").gte("date", first).lte("date", last),
+    sb.from("schedule_overrides").select("*").gte("date", first).lte("date", lastQ),
+    sb.from("holidays").select("date,name").gte("date", first).lte("date", lastQ),
     sb.from("schedule_events").select("*").gte("date", first).lte("date", last)
       .order("event_time", { ascending: true }).order("created_at", { ascending: true }),
     sb.from("etc_leave_ledger").select("employee_id,date").gte("date", first).lte("date", last),
+    nextYm ? sb.from("monthly_patterns").select("*").eq("month", nextYm) : Promise.resolve({ data: [] }),
   ]);
   if (emp.error) throw emp.error;
   if (pat.error) throw pat.error;
@@ -906,8 +924,14 @@ async function loadMonth(y, m) {
   state.allEmployees = emp.data || [];
   // ★'그 달에 재직'으로 거른다 — 퇴사자도 퇴사한 달까지는 근무표에 남는다(과거 이력 보존).
   state.employees = state.allEmployees.filter(e => empActiveInMonth(e, y, m));
+  state.tail = tail;        // 이어 붙일 다음 달 날짜들(render·집계에서 사용)
+  state.nextYm = nextYm;    // patternsFor가 이 값으로 어느 패턴을 볼지 정한다
+  state.patternsNext = {};
+  ((patN && patN.data) || []).forEach(p => { state.patternsNext[p.employee_id] = p; });
   state.patterns = {};
   (pat.data || []).forEach(p => { state.patterns[p.employee_id] = p; });
+  // ★overrides는 키에 날짜가 통째로 들어가(eid|YYYY-MM-DD) 다음 달 것이 섞여도 충돌하지 않는다.
+  //   조회부는 전부 정확한 키로 찾으므로 그대로 한 통에 담는다(패턴과 다른 점).
   state.overrides = {};
   (ovr.data || []).forEach(o => { state.overrides[o.employee_id + "|" + o.date] = o; });
   state.holidays = {};   // 공휴일 조회 실패는 무시(표시만 없음, 스케줄은 정상 동작)
@@ -936,7 +960,7 @@ async function reloadEvents() {
    3) 패턴 행 없으면 '미설정' = 근무로 간주 */
 function cellStatus(emp, y, m, d) {
   const ds = dateStr(y,m,d);
-  const pat = state.patterns[emp.id];
+  const pat = patternsFor(y, m)[emp.id];   // ★그 날짜가 속한 달의 패턴
   const patternSet = !!pat;
   const patternStatus = patternSet
     ? (pat.off_weekdays.includes(weekday(y,m,d)) ? "off" : "work")
@@ -946,6 +970,35 @@ function cellStatus(emp, y, m, d) {
     return { status: ov.status, isException: ov.status !== patternStatus, memo: ov.memo || "", patternSet };
   }
   return { status: patternStatus, isException: false, memo: "", patternSet };
+}
+
+/* ── 근무표 끝에 이어 붙일 "다음 달 초" 날짜들 ──
+   ★스케줄이 주 단위로 도는데 달력이 말일에서 끊겨, 월말 주차를 짜려면 다음 달로 넘어갔다 와야 했다.
+   말일이 속한 주가 끝날 때까지(일요일까지) 이어 붙인다. 말일이 일요일이면 빈 배열(추가 없음).
+   ※Date로 하루씩 더해 다음 달로 자연히 넘긴다 — 로컬 기준이라 시간대 문제 없음. */
+function tailDaysOf(y, m) {
+  const dim = daysInMonth(y, m);
+  const wd = weekday(y, m, dim);            // 0=일 … 6=토
+  const n = wd === 0 ? 0 : 7 - wd;          // 월(1)→6일, 토(6)→1일, 일(0)→0일
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    const dt = new Date(y, m - 1, dim + i);
+    const yy = dt.getFullYear(), mm = dt.getMonth() + 1, dd = dt.getDate();
+    out.push({ y: yy, m: mm, d: dd, ds: dateStr(yy, mm, dd) });
+  }
+  return out;
+}
+
+/* ★패턴은 달마다 다르다. 어느 달 것을 봐야 하는지 여기 한 곳에서 정한다.
+   - 보고 있는 달        → state.patterns
+   - 이어 붙인 다음 달   → state.patternsNext
+   - dtx가 다른 달 자료를 끼워 넣은 동안(_patSwap) → 끼워진 state.patterns 그대로
+   ★이 함수를 안 거치고 state.patterns를 직접 보면, 다음 달 칸을 저장할 때
+     이번 달 패턴으로 "패턴과 같으니 삭제" 판정이 나 데이터가 틀어진다. */
+let _patSwap = false;
+function patternsFor(y, m) {
+  if (_patSwap) return state.patterns;
+  return (state.nextYm && ymStr(y, m) === state.nextYm) ? state.patternsNext : state.patterns;
 }
 
 const isToday = (y,m,d) => y===today.y && m===today.m && d===today.d;
@@ -994,6 +1047,21 @@ function render() {
     }
     evtRow += `<th class="${hasEvt(ds) ? "ecol" : ""}" data-evt-date="${ds}">${chip}</th>`;
   }
+  // ★다음 달 초 이어 붙이기 — 월말 주차를 한 화면에서 짜려고. 흐린 배경 + 첫 칸 굵은 구분선으로 구분.
+  const tail = state.tail || [];
+  tail.forEach((t, ti) => {
+    const wd = weekday(t.y, t.m, t.d);
+    const holName = state.holidays[t.ds];
+    let cls = "tailh " + (wd===0?"sun":wd===6?"sat":"") + " evth" + (ti===0 ? " tail-first" : "");
+    if (holName) cls += " hol";
+    if (isToday(t.y, t.m, t.d)) cls += " today";
+    const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";
+    const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
+    // ★첫 칸에만 "N월"을 붙여 어느 달인지 바로 보이게(나머지는 날짜만).
+    const dnum = ti===0 ? `${t.m}/${t.d}` : String(t.d);
+    thead += `<th class="${cls.replace(/\s+/g," ").trim()}" data-date="${t.ds}" data-evt-date="${t.ds}"><div class="dnum">${dnum}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
+    evtRow += `<th class="tailh${ti===0 ? " tail-first" : ""}" data-evt-date="${t.ds}"></th>`;
+  });
   thead += `</tr>`;
   evtRow += `</tr>`;
   if (monthHasEvt) thead += evtRow;   // 공지 있는 달만 라벨 행 표시(없으면 날짜 헤더 클릭으로 등록)
@@ -1070,6 +1138,27 @@ function render() {
         : (memoShown ? `<span class="memo"></span>` : "");
       row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
+    // ★다음 달 칸 — 편집이 목적이라 클릭·저장은 그대로 되게 둔다(data-eid/data-date 부여).
+    //   저장은 commitOverride → patternStatusOf → patternsFor가 '그 달 패턴'을 보므로 정확히 다음 달로 들어간다.
+    //   ★퇴사한 사람은 그 날 재직이 아니므로 빈 칸으로 두고 클릭도 막는다(집계에서도 빠진다).
+    tail.forEach((t, ti) => {
+      const first = ti===0 ? " tail-first" : "";
+      if (!empActiveOnDate(emp, t.ds)) { row += `<td class="cell tail tail-na${first}"></td>`; return; }
+      const cs = cellStatus(emp, t.y, t.m, t.d);
+      const ov = state.overrides[emp.id + "|" + t.ds];
+      const adj = (ov && ov.day_start && ov.day_end) ? ov : null;
+      let cls2 = "cell tail" + first + " " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
+      if (cs.isException) cls2 += " exc";
+      if (isToday(t.y, t.m, t.d)) cls2 += " tcol";
+      if (_selCells.has(emp.id + "|" + t.ds)) cls2 += " selected";
+      const memoShown2 = (adj && !state.isAdmin) ? "" : cs.memo;
+      const attrs2 = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${t.ds}"`
+        + (memoShown2 ? ` data-memo="${esc(memoShown2)}"` : "")
+        + (memoShown2 ? ` title="${esc(memoShown2)}"` : "");
+      const inner2 = (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+        : (memoShown2 ? `<span class="memo"></span>` : "");
+      row += `<td class="${cls2}"${attrs2}>${inner2}</td>`;
+    });
     tbody += row + `</tr>`;
   }
 
@@ -1089,6 +1178,19 @@ function render() {
     workRow += `<td class="wpick${t}${wsel}" data-ds="${ds}">${w}</td>`;
     offRow  += `<td class="${t.trim()}">${o}</td>`;
   }
+  // ★다음 달 칸의 근무/휴무 수 — 그 날짜의 값이라 '이번 달 통계'를 오염시키지 않는다(배치 판단에 필요해 표시).
+  //   ※주별 순수휴무 패널·월 요약은 1일~말일만 세므로 그대로다(tail 미포함).
+  //   ※근무자 보기(wpick) 토글은 안 붙인다 — renderTodayCrew가 보고 있는 달만 그려서 눌러도 아무 일도 안 난다.
+  tail.forEach((t, ti) => {
+    let w2=0, o2=0;
+    for (const emp of state.employees){
+      if (!empActiveOnDate(emp, t.ds)) continue;
+      (cellStatus(emp, t.y, t.m, t.d).status==="off") ? o2++ : w2++;
+    }
+    const first = ti===0 ? " tail-first" : "";
+    workRow += `<td class="tail${first}">${w2}</td>`;
+    offRow  += `<td class="tail${first}">${o2}</td>`;
+  });
   workRow += `</tr>`; offRow += `</tr>`;
 
   document.getElementById("grid").innerHTML =
@@ -1252,7 +1354,7 @@ function dtxBuild(ds) {
   if (other && !cache) return `※ ${y}년 ${m}월 자료가 없습니다(다시 [생성]을 눌러주세요).`;
   // ★다른 달이면 state를 잠깐 바꿔 끼우고 곧바로 되돌린다. 이 사이에 await가 없어 안전하다.
   const savedP = state.patterns, savedO = state.overrides;
-  if (cache) { state.patterns = cache.patterns; state.overrides = cache.overrides; }
+  if (cache) { state.patterns = cache.patterns; state.overrides = cache.overrides; _patSwap = true; }
   try {
     // ★그 날 기준으로 직원을 고른다 — state.employees는 '보고 있는 달' 기준이라 다른 달엔 못 쓴다.
     //   empActiveOnDate가 active·퇴사일을 함께 보므로 보고 있는 달에서도 결과가 같다.
@@ -1260,7 +1362,7 @@ function dtxBuild(ds) {
     const head = `${m}월 ${d}일(${WD[weekday(y,m,d)]}) 근무 ${working.length}명`;
     return head + "\n" + (working.length ? working.map(e => e.name).join(", ") : "(전원 휴무)");
   } finally {
-    state.patterns = savedP; state.overrides = savedO;
+    state.patterns = savedP; state.overrides = savedO; _patSwap = false;
   }
 }
 const DTX_SEP = "\n\n";   // 날짜 사이 빈 줄 하나
@@ -1864,7 +1966,7 @@ function openEditSheet(eid, date, name) {
 }
 // 그날 패턴 상태(근무/휴무)
 function patternStatusOf(eid, y, m, d) {
-  const pat = state.patterns[eid];
+  const pat = patternsFor(y, m)[eid];   // ★그 날짜가 속한 달의 패턴 — 저장(삭제 판정)이 여기에 걸린다
   return pat ? (pat.off_weekdays.includes(weekday(y, m, d)) ? "off" : "work") : "work";
 }
 // override 커밋(단일·일괄 공용): 패턴과 같고 메모 없으면 삭제, 아니면 upsert. 로컬 state.overrides 갱신.
