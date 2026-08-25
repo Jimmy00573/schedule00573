@@ -1872,6 +1872,22 @@ function step(delta) {
   goMonth(y, m);
 }
 
+/* ── 로드 시 오늘 열로 가로 스크롤 ── (표시 전용 — 렌더·계산에는 일절 관여 안 함)
+   ★이 표는 날짜가 가로 축(열=날짜, 행=직원)이라 '오늘'은 세로가 아니라 가로 위치다.
+   ★scrollIntoView를 쓰지 않는다 — 조상 스크롤 컨테이너를 전부 움직여 페이지까지 같이 튄다.
+     #scroll의 scrollLeft만 직접 옮긴다(범위 밖 값은 브라우저가 알아서 잘라준다). */
+let _todayScrolled = false;   // ★최초 로드 1회만. 셀 수정·저장 재렌더에서 실행되면 편집 중 화면이 튄다.
+function scrollToTodayCol() {
+  if (state.y !== today.y || state.m !== today.m) return;   // 보고 있는 달이 오늘이 속한 달일 때만
+  const sc = document.getElementById("scroll");
+  if (!sc) return;
+  // ★다음 달 미리보기 칸(.tailh)이 아니라 이번 달 본 칸의 오늘 열
+  const th = sc.querySelector("thead th.today:not(.tailh)");
+  if (!th) return;
+  const r = th.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+  sc.scrollLeft += (r.left - sr.left) - (sr.width - r.width) / 2;   // 오늘 열을 가로 중앙으로
+}
+
 /* ── 시트(공통) ── */
 const backdrop = () => document.getElementById("sheet-bg");
 function openSheetEl(id) {
@@ -3028,7 +3044,8 @@ async function saveAnnualDays() {
 /* ── 이벤트 ── */
 document.getElementById("prev").onclick = () => step(-1);
 document.getElementById("next").onclick = () => step(1);
-document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m);
+document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m)
+  .then(() => requestAnimationFrame(scrollToTodayCol));   // 오늘로 돌아오면 오늘 열도 다시 중앙으로
 backdrop().onclick = closeSheets;
 document.getElementById("view-close").onclick = closeSheets;
 document.getElementById("crew-close").onclick = closeSheets;
@@ -3237,6 +3254,7 @@ document.getElementById("wk-save").onclick = saveWorkCfg;
   updateAuthUI();
   await loadWorkCfg();               // 근무시간 세팅(집계용, 기본값 폴백)
   await goMonth(state.y, state.m);   // 데이터 로드 + 첫 렌더
+  if (!_todayScrolled) { _todayScrolled = true; requestAnimationFrame(scrollToTodayCol); }   // ★최초 1회만
 })();
 </script>
 </body>
