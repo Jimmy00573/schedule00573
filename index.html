@@ -1080,11 +1080,9 @@ function render() {
 
   // 본문
   let tbody = "";
-  // 순수 휴무 판별: 장부(연차·대체휴무/근무·경조사)에 있는 (eid|date)는 순수 휴무 아님
-  const _lkey = (eid, dt) => String(eid) + "|" + dt;
-  const ledgerDays = new Set();
-  [...state.annual, ...state.ledger, ...(state.etc || [])].forEach(r => ledgerDays.add(_lkey(r.employee_id, r.date)));
-  const isPureOff = (eid, dstr, cs) => cs.status === "off" && !ledgerDays.has(_lkey(eid, dstr));
+  // 순수 휴무 판별: 장부(연차·대체휴무/근무·경조사)에 있는 (eid|date)는 순수 휴무 아님 — 공용 isPureOffDay(집합은 한 번만 만든다)
+  const ledgerDays = pureOffLedgerSet();
+  const isPureOff = (eid, dstr, cs) => isPureOffDay(eid, dstr, cs.status, ledgerDays);
   // 주차(월~일) 구간 — 그 달 날짜 기준(경계 주는 그 달 부분만). weekOffs와 동일 규칙.
   const weeks = [];
   for (let d=1; d<=dim; d++){ if (d===1 || weekday(y,m,d)===1) weeks.push([]); weeks[weeks.length-1].push(d); }
@@ -1328,7 +1326,7 @@ function renderTodayCrew() {
      _dtxCache에 그 달 자료를 따로 받아 두고, 계산 직전에 잠깐 끼워 넣었다가 되돌린다.
      ※끼우는 구간에 await가 없다(cellStatus는 동기) — 화면이 보고 있는 달 데이터는 오염되지 않는다.
      ※필요한 달만 그때 받는다(인접 달 미리 로드 안 함) — 대부분은 한 달 안에서 끝나서 헛 조회가 된다. */
-const _dtxCache = {};   // 'YYYY-MM' → { patterns, overrides }  (모달을 열어 다른 달을 뽑을 때만 채워짐)
+const _dtxCache = {};   // 'YYYY-MM' → { patterns, overrides, etc }  (다른 달을 계산할 때만 채워짐 — 근무자 텍스트·pureOffInRange 공용)
 
 // 그 달 자료 확보. 보고 있는 달이면 state를 그대로 쓰므로 null을 돌려준다.
 async function dtxEnsureMonth(ym) {
@@ -1336,15 +1334,18 @@ async function dtxEnsureMonth(ym) {
   if (_dtxCache[ym]) return _dtxCache[ym];
   const [y, m] = ym.split("-").map(Number);
   const first = dateStr(y, m, 1), last = dateStr(y, m, daysInMonth(y, m));
-  const [pat, ovr] = await Promise.all([
+  // ★경조사 장부(etc)도 그 달 것을 같이 받는다 — 순수 휴무 판정(pureOffLedgerSet)용. state.etc는 보고 있는 달만 있다.
+  const [pat, ovr, etc] = await Promise.all([
     sb.from("monthly_patterns").select("*").eq("month", ym),
     sb.from("schedule_overrides").select("*").gte("date", first).lte("date", last),
+    sb.from("etc_leave_ledger").select("employee_id,date").gte("date", first).lte("date", last),
   ]);
   if (pat.error) throw pat.error;
   if (ovr.error) throw ovr.error;
+  if (etc.error) throw etc.error;   // ★빠지면 경조사 날이 순수 휴무로 부풀려 세진다 — 조용히 넘기지 않는다
   const patterns = {}; (pat.data || []).forEach(x => { patterns[x.employee_id] = x; });
   const overrides = {}; (ovr.data || []).forEach(x => { overrides[x.employee_id + "|" + x.date] = x; });
-  _dtxCache[ym] = { patterns, overrides };
+  _dtxCache[ym] = { patterns, overrides, etc: etc.data || [] };
   return _dtxCache[ym];
 }
 // 기간에 필요한 달을 한 번에 확보. 실패하면 false(호출부가 중단).
@@ -1355,6 +1356,54 @@ async function dtxEnsureRange(dates) {
   dtxMsg(`다른 달(${need.join(", ")}) 자료를 불러오는 중…`);
   try { await Promise.all(need.map(dtxEnsureMonth)); dtxMsg(""); return true; }
   catch (e) { dtxMsg("다른 달 자료를 불러오지 못했습니다: " + (e.message || e), true); return false; }
+}
+
+/* ── 순수 휴무 판정(공용) ──
+   순수 휴무 = 휴무(off)이면서 장부(휴가·대체휴무/근무·경조사)에 없는 날. render()의 주별 휴무 수와 pureOffInRange가 같이 쓴다.
+   장부 집합: annual·ledger는 전체 로드, etc는 보고 있는 달(state.etc) + 다른 달(_dtxCache[ym].etc).
+   ★보고 있는 달의 캐시 etc는 넣지 않는다 — 예전에 받아 둔 것이라 낡았을 수 있다(그 달은 state.etc가 최신). */
+function pureOffLedgerSet() {
+  const cur = ymStr(state.y, state.m);
+  const set = new Set();
+  const add = r => set.add(String(r.employee_id) + "|" + r.date);
+  [...state.annual, ...state.ledger, ...(state.etc || [])].forEach(add);
+  Object.keys(_dtxCache).forEach(ym => { if (ym !== cur) (_dtxCache[ym].etc || []).forEach(add); });
+  return set;
+}
+// ledgerDays를 넘기면 그 집합을 쓴다(여러 칸을 셀 때 한 번만 만들려고). 안 넘기면 그때 만든다.
+function isPureOffDay(empId, ds, status, ledgerDays) {
+  return status === "off" && !(ledgerDays || pureOffLedgerSet()).has(String(empId) + "|" + ds);
+}
+
+/* ── 기간 휴무 집계: 직원 한 명의 from~to(포함) → { pure, leave, noPattern, days } ──
+   pure=순수 휴무, leave=장부 있는 휴무(휴가·대체휴무·경조사), noPattern=그 달 패턴도 override도 없는 날(근무로 안 셈),
+   days=재직 중인 날 수(empActiveOnDate 거짓인 날은 아예 안 셈). 공휴일은 보지 않는다(쉰 날도 메모 없는 휴무면 pure).
+   ★다른 달 날짜는 근무자 텍스트와 같은 방식 — dtxEnsureMonth로 받아 두고, 계산 직전에 state에 잠깐 끼웠다가 되돌린다.
+     끼우는 구간(for 루프)에 await가 없어 보고 있는 달 데이터는 오염되지 않는다. */
+async function pureOffInRange(emp, fromDs, toDs) {
+  const dates = eachDateInclusive(fromDs, toDs);
+  const cur = ymStr(state.y, state.m);
+  await Promise.all([...new Set(dates.map(ds => ds.slice(0, 7)))].filter(ym => ym !== cur).map(dtxEnsureMonth));
+  const ledgerDays = pureOffLedgerSet();
+  const out = { pure: 0, leave: 0, noPattern: 0, days: 0 };
+  const savedP = state.patterns, savedO = state.overrides;
+  try {
+    for (const ds of dates) {
+      if (!empActiveOnDate(emp, ds)) continue;
+      const cache = ds.slice(0, 7) === cur ? null : _dtxCache[ds.slice(0, 7)];
+      if (cache) { state.patterns = cache.patterns; state.overrides = cache.overrides; _patSwap = true; }
+      else { state.patterns = savedP; state.overrides = savedO; _patSwap = false; }
+      const [y, m, d] = ds.split("-").map(Number);
+      const cs = cellStatus(emp, y, m, d);
+      out.days++;
+      if (!cs.patternSet && !state.overrides[emp.id + "|" + ds]) out.noPattern++;
+      else if (isPureOffDay(emp.id, ds, cs.status, ledgerDays)) out.pure++;
+      else if (cs.status === "off") out.leave++;
+    }
+  } finally {
+    state.patterns = savedP; state.overrides = savedO; _patSwap = false;
+  }
+  return out;
 }
 
 function dtxBuild(ds) {
