@@ -140,31 +140,24 @@
   .wk-off .wo-over{color:#dc2626}   /* 2 초과 = 빨강 */
   .wk-off .wo-under{color:#2563eb}  /* 2 미만 = 파랑 */
   .wk-off .wo-sep{color:var(--border); font-weight:400; margin:0 1px}
-  /* 주별 순수 휴무 체크 패널(표 아래) */
-  #wo-panel{margin:12px auto 0; max-width:1040px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff}
-  .wo-hd{display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; background:#f8fafc; user-select:none}
-  .wo-title{font-weight:700; font-size:14px}
-  .wo-badge{font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; background:#fef2f2; color:#dc2626}
-  .wo-badge.ok{background:#f0fdf4; color:#16a34a}
-  .wo-arrow{margin-left:auto; font-size:11px; color:var(--sub)}
-  .wo-week{display:flex; gap:8px; align-items:flex-start; padding:8px 14px; border-top:1px solid var(--border); flex-wrap:wrap}
-  .wo-wlabel{font-size:12px; font-weight:700; min-width:74px; padding-top:2px}
-  .wo-range{font-weight:400; color:var(--sub); font-size:11px}
-  .wo-chips{display:flex; gap:6px; flex-wrap:wrap; flex:1}
-  .wo-chip{font-size:12px; font-weight:600; padding:2px 9px; border-radius:12px}
-  .wo-chip.under{background:#fef2f2; color:#dc2626}   /* 순수 휴무 부족(<2) = 빨강 */
-  .wo-chip.over{background:#fff7ed; color:#c2410c}    /* 순수 휴무 초과(>2) = 주황 */
-  .wo-ok{font-size:12px; color:#16a34a; font-weight:600}
-  /* 2주 블록 휴무 표(관리자 패널) — 전역 table 규칙(max-content·셀 보더)을 덮는다 */
-  .wo-tbl{width:100%; table-layout:fixed; margin:0; border-top:1px solid var(--border)}
-  .wo-tbl th,.wo-tbl td{border-right:none; border-bottom:1px solid #E5E7EB; padding:6px 4px; text-align:center; font-weight:400}
-  .wo-tbl th{font-size:11px; color:#6B7280; background:#fff; position:static; width:auto; min-width:0}
-  .wo-tbl th.wo-nm,.wo-tbl td.wo-nm{width:64px; text-align:left; padding-left:10px; font-size:12px; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .wo-tbl .wo-cur{background:#F9FAFB}
-  .wo-tbl .wo-n{font-size:16px; font-weight:500; line-height:1.2}
-  .wo-tbl .wo-sub{font-size:11px; color:#9CA3AF; line-height:1.3}
-  .wo-note{font-size:11px; color:#9CA3AF; padding:8px 10px}
-  .wo-msg{font-size:12px; color:#6B7280; padding:12px 10px; border-top:1px solid var(--border)}
+  /* 기간 집계 박스(관리자, 근무표 위) — 게스트는 body.admin이 없어 숨김. 표는 전역 table·thead th 규칙(max-content·sticky·30px)을 덮는다 */
+  #pa-box{margin:8px auto; max-width:1040px; border:1px solid var(--border); border-radius:10px; background:#fff; padding:10px 12px}
+  body:not(.admin) #pa-box{display:none !important}
+  .btn.on{border-color:#1E3A5F; color:#1E3A5F}
+  .pa-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px}
+  .pa-row input[type="date"]{font-size:13px; padding:5px 6px; border:1px solid var(--border); border-radius:6px; font-family:inherit}
+  .pa-days{color:#9CA3AF; font-size:12px}
+  .pa-err{color:#DC2626; font-size:13px}
+  .pa-err:empty{display:none}
+  .pa-tbl{width:100%; max-width:560px; table-layout:fixed; margin:10px 0 0}
+  .pa-tbl th,.pa-tbl td{border-right:none; border-bottom:1px solid #E5E7EB; padding:6px 4px; text-align:center; font-weight:400}
+  .pa-tbl th{font-size:11px; color:#6B7280; background:#fff; position:static; width:auto; min-width:0}
+  .pa-tbl td{font-size:15px; color:#374151}
+  .pa-tbl th.pa-nm,.pa-tbl td.pa-nm{width:64px; text-align:left; padding-left:4px; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .pa-tbl .pa-zero{color:#D1D5DB}
+  .pa-tbl .pa-np{font-size:11px; color:#854F0B}
+  .pa-note{font-size:11px; color:#9CA3AF; margin-top:6px}
+  .pa-msg{font-size:12px; color:#6B7280; padding:10px 0 2px}
 
   /* 데이터 셀 */
   td.cell{
@@ -458,6 +451,7 @@
     <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
     <button class="btn adm-only" id="hol-btn" style="display:none">휴무일</button>
     <button class="btn adm-only" id="dtx-btn" style="display:none">근무자 텍스트</button>
+    <button class="btn adm-only" id="pa-btn" style="display:none" onclick="togglePeriodAgg()">기간 집계</button>
     <span class="hol-count" id="hol-count"></span>
   </div>
 
@@ -471,12 +465,21 @@
 
   <div class="leave-bar" id="leave-bar" style="display:none"></div>
 
+  <!-- 기간 집계(관리자) — 기간 집계 버튼으로 펼침/접기 -->
+  <div id="pa-box" style="display:none">
+    <div class="pa-row">
+      <input type="date" id="pa-from" onchange="paDatesChanged()"> ~ <input type="date" id="pa-to" onchange="paDatesChanged()">
+      <button class="btn" onclick="runPeriodAgg()">조회</button>
+      <span class="pa-days" id="pa-days"></span>
+    </div>
+    <div class="pa-err" id="pa-err"></div>
+    <div id="pa-out"></div>
+  </div>
+
   <div class="scroll" id="scroll">
     <div class="msg" id="grid-msg">불러오는 중…</div>
     <div id="grid"></div>
   </div>
-
-  <div id="wo-panel" style="display:none"></div>
 
   <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
 
@@ -1216,15 +1219,13 @@ function render() {
   document.getElementById("grid").innerHTML =
     `<table><thead>${thead}</thead><tbody>${tbody}</tbody><tfoot>${workRow}${offRow}</tfoot></table>`;
 
-  renderWoPanel();
   renderLeaveBar();
   renderTodayCrew();
   renderWorkSummary();
 }
 
-/* ── 2주 휴무 체크 패널(표 아래, 관리자 전용) ──
-   회사 규칙: 2주 블록마다 순수 휴무 4일. 블록은 REST_BLOCK_ANCHOR(월요일)에서 14일씩 앞뒤로 끊는다 — 달 경계와 무관.
-   칸 값은 pureOffInRange(1주차·2주차 각각)를 합친다. 다른 달 날짜는 _dtxCache로 받아 오므로 비동기다. */
+/* ── 2주 휴무 블록 기준 ── 회사 규칙: 2주 블록마다 순수 휴무 4일. REST_BLOCK_ANCHOR(월요일)에서 14일씩 앞뒤로 끊는다(달 경계와 무관).
+   지금은 기간 집계 폼의 기본 기간(오늘이 든 블록)에 쓴다. */
 const REST_BLOCK_ANCHOR = "2026-10-05";   // 2주 4일 휴무 블록 기준 월요일
 // 날짜 → 그 날짜가 속한 블록 { from, mid(2주차 월요일), to }. shift를 주면 그만큼 블록을 옮긴다(1 = 다음 블록). 로컬 Date만 쓴다.
 function restBlockOf(ds, shift) {
@@ -1235,80 +1236,74 @@ function restBlockOf(ds, shift) {
   const at = n => { const t = new Date(ay, am - 1, ad + n); return dateStr(t.getFullYear(), t.getMonth() + 1, t.getDate()); };
   return { from: at(start), mid: at(start + 7), to: at(start + 13) };
 }
-let _woReq = 0;   // 패널 계산 요청 번호 — 계산 중에 달을 바꾸거나 다시 그리면 늦게 끝난 옛 결과는 버린다
-function renderWoPanel() {
-  const el = document.getElementById("wo-panel");
-  if (!el) return;
-  if (!state.isAdmin) { el.innerHTML = ""; el.style.display = "none"; return; }   // 관리자 전용(게스트는 안 보임)
-  if (!state.employees.length) { el.innerHTML = ""; el.style.display = "none"; return; }
-  el.style.display = "";
-  const ym = ymStr(state.y, state.m);
-  const first = dateStr(state.y, state.m, 1), last = dateStr(state.y, state.m, daysInMonth(state.y, state.m));
-  const blocks = [];   // 1일이 속한 블록 ~ 말일이 속한 블록
-  for (let b = restBlockOf(first); b.from <= last; b = restBlockOf(b.from, 1)) blocks.push(b);
-  const emps = state.employees.slice();   // 근무표와 같은 직원·순서(empActiveInMonth)
-  el.innerHTML =
-    `<div class="wo-hd" onclick="toggleWoPanel()">
-       <span class="wo-title">2주 휴무 체크</span>
-       <span id="wo-panel-badge"></span>
-       <span id="wo-panel-arrow" class="wo-arrow">▼</span>
-     </div>
-     <div id="wo-panel-body" style="display:none"><div class="wo-msg">계산 중…</div></div>`;
-  const req = ++_woReq;
-  const stale = () => req !== _woReq || ymStr(state.y, state.m) !== ym;
-  (async () => {
-    let res;
-    try {
-      // 다른 달 자료를 먼저 한 번만 받아 둔다(칸마다 같은 달을 동시에 다시 받지 않게)
-      const months = [...new Set(blocks.flatMap(b => [b.from, b.to]).map(ds => ds.slice(0, 7)))];
-      await Promise.all(months.map(dtxEnsureMonth));
-      res = await Promise.all(emps.map(e => Promise.all(blocks.map(async b => {
-        const w1End = eachDateInclusive(b.from, b.to)[6];   // 1주차 일요일
-        const [w1, w2] = await Promise.all([pureOffInRange(e, b.from, w1End), pureOffInRange(e, b.mid, b.to)]);
-        return { w1, w2 };
-      }))));
-    } catch (err) {
-      if (stale()) return;
-      const body = document.getElementById("wo-panel-body");
-      if (body) body.innerHTML = `<div class="wo-msg">휴무 집계를 불러오지 못했습니다</div>`;
-      return;
-    }
-    if (stale()) return;
-    const todayDs = dateStr(today.y, today.m, today.d);
-    const curIdx = blocks.findIndex(b => b.from <= todayDs && todayDs <= b.to);
-    const md = ds => `${Number(ds.slice(5, 7))}/${Number(ds.slice(8, 10))}`;
-    const cur = i => i === curIdx ? ` class="wo-cur"` : "";
-    let shortEmps = 0;
-    const head = `<tr><th class="wo-nm"></th>${blocks.map((b, i) => `<th${cur(i)}>${md(b.from)}~${md(b.to)}${i === curIdx ? " (현재)" : ""}</th>`).join("")}</tr>`;
-    const rows = emps.map((e, ei) => {
-      let short = false;
-      const tds = res[ei].map(({ w1, w2 }, i) => {
-        if (!w1.days && !w2.days) return `<td${cur(i)}><span class="wo-sub">—</span></td>`;   // 그 블록에 재직하지 않음
-        const pure = w1.pure + w2.pure, leave = w1.leave + w2.leave, noPat = w1.noPattern + w2.noPattern;
-        const color = pure < 4 ? "#DC2626" : (pure === 4 ? "#374151" : "#1565C0");
-        const sub = [`${w1.pure}+${w2.pure}`];
-        if (leave > 0) sub.push(`<span style="color:#1565C0">휴가${leave}</span>`);
-        if (noPat > 0) sub.push(`<span style="color:#854F0B">미정${noPat}</span>`);
-        if (pure < 4 && noPat === 0) { sub.push(`${4 - pure}일 부족`); short = true; }
-        return `<td${cur(i)}><div class="wo-n" style="color:${color}">${pure}</div><div class="wo-sub">${sub.join(" · ")}</div></td>`;
-      }).join("");
-      if (short) shortEmps++;
-      return `<tr><td class="wo-nm" title="${esc(e.name)}">${esc(e.name)}</td>${tds}</tr>`;
-    }).join("");
-    const body = document.getElementById("wo-panel-body");
-    const badge = document.getElementById("wo-panel-badge");
-    if (body) body.innerHTML = `<table class="wo-tbl"><thead>${head}</thead><tbody>${rows}</tbody></table>`
-      + `<div class="wo-note">큰 숫자 = 2주 순수 휴무 합계 · 빨강 4일 미만 · 휴가는 합계에서 빠짐 · 미정 = 그 달 패턴을 아직 안 짠 날</div>`;
-    if (badge) badge.outerHTML = shortEmps ? `<span class="wo-badge">부족 ${shortEmps}명</span>` : `<span class="wo-badge ok">전원 정상</span>`;
-  })();
+
+/* ── 기간 집계(관리자, 스케줄 탭 근무표 위) ──
+   시작~끝을 넣으면 직원별 근무·휴무(순수)·대체휴무·휴가·경조사 일수. 계산은 pureOffInRange 재사용.
+   ★박스는 근무표 밖이라 달을 넘겨도 박스·결과가 그대로다(기간이 달과 무관). 저장 후 자동 재조회는 하지 않는다.
+   ★직원: state.employees는 '보고 있는 달' 기준이라 못 쓴다 → state.allEmployees(display_order 순)에서
+     기간 안에 하루라도 empActiveOnDate인 사람(active 포함 판정). */
+const PA_MAX_DAYS = 93;
+let _paReq = 0;   // 조회 요청 번호 — 다시 조회하거나 기간을 바꾸면 늦게 끝난 옛 결과는 버린다
+function togglePeriodAgg() {
+  const box = document.getElementById("pa-box");
+  const open = box.style.display === "none";
+  box.style.display = open ? "" : "none";
+  document.getElementById("pa-btn").classList.toggle("on", open);
+  if (open && !document.getElementById("pa-from").value) {   // 처음 열 때만 기본 기간(오늘이 든 2주 블록)
+    const b = restBlockOf(dateStr(today.y, today.m, today.d));
+    document.getElementById("pa-from").value = b.from;
+    document.getElementById("pa-to").value = b.to;
+    paDatesChanged();
+  }
 }
-function toggleWoPanel() {
-  const b = document.getElementById("wo-panel-body");
-  const a = document.getElementById("wo-panel-arrow");
-  if (!b) return;
-  const show = b.style.display === "none";
-  b.style.display = show ? "" : "none";
-  if (a) a.textContent = show ? "▲" : "▼";
+// 입력 기간 → 날짜 배열, 잘못이면 안내 문구(문자열)
+function paRange() {
+  const f = document.getElementById("pa-from").value, t = document.getElementById("pa-to").value;
+  if (!f || !t) return "시작일과 끝일을 입력하세요.";
+  if (f > t) return "시작일이 끝일보다 늦습니다.";
+  const dates = eachDateInclusive(f, t);
+  if (dates.length > PA_MAX_DAYS) return `기간은 ${PA_MAX_DAYS}일까지 조회할 수 있습니다.`;
+  return dates;
+}
+function paDatesChanged() {
+  _paReq++;   // 진행 중이던 조회는 버린다
+  document.getElementById("pa-err").textContent = "";
+  const out = document.getElementById("pa-out");
+  if (out.querySelector(".pa-busy")) out.innerHTML = "";
+  const r = paRange();
+  document.getElementById("pa-days").textContent = Array.isArray(r) ? `${r.length}일` : "";
+}
+async function runPeriodAgg() {
+  if (!state.isAdmin) return;
+  const dates = paRange();
+  if (!Array.isArray(dates)) { document.getElementById("pa-err").textContent = dates; return; }
+  document.getElementById("pa-err").textContent = "";
+  const req = ++_paReq;
+  const ym = ymStr(state.y, state.m);
+  const out = document.getElementById("pa-out");
+  out.innerHTML = `<div class="pa-msg pa-busy">계산 중…</div>`;
+  const emps = state.allEmployees.filter(e => dates.some(ds => empActiveOnDate(e, ds)));
+  let res;
+  try {
+    // 다른 달 자료를 먼저 한 번만 받아 둔다(직원마다 같은 달을 동시에 다시 받지 않게)
+    await Promise.all([...new Set(dates.map(ds => ds.slice(0, 7)))].map(dtxEnsureMonth));
+    res = await Promise.all(emps.map(e => pureOffInRange(e, dates[0], dates[dates.length - 1])));
+  } catch (err) {
+    if (req === _paReq) out.innerHTML = `<div class="pa-msg">집계를 불러오지 못했습니다</div>`;
+    return;
+  }
+  if (req !== _paReq) return;
+  // ★계산 중에 달을 넘기면(불러오는 사이 state가 두 달에 걸침) 값이 어긋날 수 있다 — 버리고 다시 누르게 한다
+  if (ymStr(state.y, state.m) !== ym) { out.innerHTML = `<div class="pa-msg">계산 중에 달이 바뀌었습니다. 다시 [조회]를 눌러 주세요.</div>`; return; }
+  const num = n => n ? String(n) : `<span class="pa-zero">0</span>`;
+  const rows = emps.map((e, i) => {
+    const r = res[i];
+    const np = r.noPattern ? `<span class="pa-np"> · 미정${r.noPattern}</span>` : "";
+    return `<tr><td class="pa-nm" title="${esc(e.name)}">${esc(e.name)}</td><td>${num(r.work)}</td><td>${num(r.pure)}</td><td>${num(r.subOff)}</td><td>${num(r.vacEtc)}${np}</td></tr>`;
+  }).join("");
+  out.innerHTML =
+    `<table class="pa-tbl"><thead><tr><th class="pa-nm">직원</th><th>근무</th><th>휴무</th><th>대체휴무</th><th>휴가·경조사</th></tr></thead><tbody>${rows}</tbody></table>`
+    + `<div class="pa-note">휴무 = 대체휴무·휴가·경조사를 뺀 순수 휴무 · 미정 = 패턴을 안 짠 날(근무로 세지 않음)</div>`;
 }
 
 /* ── 스케줄 상단: 직원별 대체휴무 잔여 요약 바 (대체휴무 탭 계산 로직 재사용) ── */
@@ -1435,6 +1430,8 @@ function pureOffLedgerSet() {
   const add = r => set.add(String(r.employee_id) + "|" + r.date);
   [...state.annual, ...state.ledger, ...(state.etc || [])].forEach(add);
   Object.keys(_dtxCache).forEach(ym => { if (ym !== cur) (_dtxCache[ym].etc || []).forEach(add); });
+  // ★대체휴무(leave_ledger direction='use')만 따로 붙여 둔다 — pureOffInRange가 장부 휴무를 대체휴무/휴가·경조사로 나눌 때 쓴다(집합 자체는 그대로)
+  set.subOff = new Set(state.ledger.filter(r => r.direction === "use").map(r => String(r.employee_id) + "|" + r.date));
   return set;
 }
 // ledgerDays를 넘기면 그 집합을 쓴다(여러 칸을 셀 때 한 번만 만들려고). 안 넘기면 그때 만든다.
@@ -1442,9 +1439,10 @@ function isPureOffDay(empId, ds, status, ledgerDays) {
   return status === "off" && !(ledgerDays || pureOffLedgerSet()).has(String(empId) + "|" + ds);
 }
 
-/* ── 기간 휴무 집계: 직원 한 명의 from~to(포함) → { pure, leave, noPattern, days } ──
+/* ── 기간 휴무 집계: 직원 한 명의 from~to(포함) → { pure, leave, noPattern, days, work, subOff, vacEtc } ──
    pure=순수 휴무, leave=장부 있는 휴무(휴가·대체휴무·경조사), noPattern=그 달 패턴도 override도 없는 날(근무로 안 셈),
    days=재직 중인 날 수(empActiveOnDate 거짓인 날은 아예 안 셈). 공휴일은 보지 않는다(쉰 날도 메모 없는 휴무면 pure).
+   work=근무로 판정된 날. leave = subOff(대체휴무 장부) + vacEtc(그 밖의 장부 — 휴가·경조사). days = noPattern+pure+leave+work.
    ★다른 달 날짜는 근무자 텍스트와 같은 방식 — dtxEnsureMonth로 받아 두고, 계산 직전에 state에 잠깐 끼웠다가 되돌린다.
      끼우는 구간(for 루프)에 await가 없어 보고 있는 달 데이터는 오염되지 않는다. */
 async function pureOffInRange(emp, fromDs, toDs) {
@@ -1452,7 +1450,7 @@ async function pureOffInRange(emp, fromDs, toDs) {
   const cur = ymStr(state.y, state.m);
   await Promise.all([...new Set(dates.map(ds => ds.slice(0, 7)))].filter(ym => ym !== cur).map(dtxEnsureMonth));
   const ledgerDays = pureOffLedgerSet();
-  const out = { pure: 0, leave: 0, noPattern: 0, days: 0 };
+  const out = { pure: 0, leave: 0, noPattern: 0, days: 0, work: 0, subOff: 0, vacEtc: 0 };
   const savedP = state.patterns, savedO = state.overrides;
   try {
     for (const ds of dates) {
@@ -1465,7 +1463,11 @@ async function pureOffInRange(emp, fromDs, toDs) {
       out.days++;
       if (!cs.patternSet && !state.overrides[emp.id + "|" + ds]) out.noPattern++;
       else if (isPureOffDay(emp.id, ds, cs.status, ledgerDays)) out.pure++;
-      else if (cs.status === "off") out.leave++;
+      else if (cs.status === "off") {
+        out.leave++;
+        if (ledgerDays.subOff.has(String(emp.id) + "|" + ds)) out.subOff++; else out.vacEtc++;   // 두 장부에 다 있으면 대체휴무 우선
+      }
+      else out.work++;
     }
   } finally {
     state.patterns = savedP; state.overrides = savedO; _patSwap = false;
