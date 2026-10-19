@@ -139,11 +139,8 @@
   }
   td.name[data-eid]{cursor:pointer}   /* 이름 클릭 → 휴무 종합 */
   td.name .nm-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  /* 이름 아래 주차별(월~일) 휴무 수 — 기본 주2회와 다르면 강조 */
-  .wk-off{margin-top:1px; font-size:9px; line-height:1.1; font-weight:700; white-space:nowrap; color:var(--sub)}
-  .wk-off .wo-over{color:#dc2626}   /* 2 초과 = 빨강 */
-  .wk-off .wo-under{color:#2563eb}  /* 2 미만 = 파랑 */
-  .wk-off .wo-sep{color:var(--border); font-weight:400; margin:0 1px}
+  /* 내 줄 강조(내 스케줄에서 고른 사람) */
+  td.name.me{box-shadow:inset 3px 0 0 #1E3A5F; color:#1E3A5F}
   /* 기간 집계 박스(관리자, 근무표 위) — 게스트는 body.admin이 없어 숨김. 표는 전역 table·thead th 규칙(max-content·sticky·30px)을 덮는다 */
   #pa-box{margin:8px auto; max-width:1040px; border:1px solid var(--border); border-radius:10px; background:#fff; padding:10px 12px}
   body:not(.admin) #pa-box{display:none !important}
@@ -174,7 +171,7 @@
   /* 연속 사유 휴무 띠(2일+): 옅은 파랑, 내부 세로 경계 제거 → 하나의 띠로 연결 */
   td.cell.span{background:#eef2ff}
   td.cell.span-start, td.cell.span-mid{border-right-color:transparent}
-  td.cell .span-label{font-size:9px; line-height:1.1; color:var(--memo); font-weight:700; display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}
+  td.cell span.span-label{position:absolute; left:2px; top:50%; transform:translateY(-50%); z-index:3; pointer-events:none; font-size:9px; line-height:1.1; color:var(--memo); font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 1px}   /* 띠 길이만큼 옆 칸 위로(max-width는 render가 지정) */
   /* 오늘 열: 좌우 세로 강조선(세로줄) + 반투명 파랑 틴트(휴무 회색·띠 위에서도 은은히 구분) */
   td.cell.tcol{box-shadow:inset 2px 0 0 #93c5fd, inset -2px 0 0 #93c5fd}
   td.cell.tcol::after{content:""; position:absolute; inset:0; background:rgba(59,130,246,.09); pointer-events:none}
@@ -201,7 +198,7 @@
   .evt-row th{padding:1px 2px; border-bottom:1px solid var(--line); background:#fff; vertical-align:top; cursor:pointer}
   .evt-row th.ecol{background:#fffbeb}
   .evt-row th.evt-corner{background:#fff; text-align:right; font-size:10px; color:var(--sub); padding-right:5px; cursor:default}
-  .evt-chip{display:block; max-width:100%; font-size:9px; line-height:1.25; padding:1px 3px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700}
+  .evt-chip{display:block; max-width:28px; font-size:9px; line-height:1.25; padding:1px 3px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700}
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
   td.cell .tadj{font-size:9px; line-height:1.1; font-weight:800; color:#c2410c; letter-spacing:-0.3px}   /* 시간 조정 축약(5-14) */
   /* 칸 유형(휴가·대체휴무·경조사·대체근무) — 옅은 배경 + 2글자 코드. td.cell.span(띠)보다 뒤라 띠도 유형색.
@@ -219,6 +216,21 @@
   td.cell.selected{outline:2px solid #2563eb; outline-offset:-2px; background:#dbeafe; position:relative; z-index:2; cursor:pointer}   /* 다중 선택된 칸(관리자) */
   /* ★선택 표시가 유형색보다 우선 — tail 유형 칸은 위 tail 규칙이 더 구체적이라 따로 덮는다(흐림도 해제) */
   td.cell.tail.selected.k-vac, td.cell.tail.selected.k-sub, td.cell.tail.selected.k-etc, td.cell.tail.selected.k-grt{background:#dbeafe; opacity:1}
+  /* 주 구분선(블록 안 둘째 주 월요일) */
+  th.wkl, td.wkl{border-left:1px solid #cbd5e1}
+  /* 2주 휴무 칸 — 블록이 끝나는 일요일 뒤. 기준 4일과 다르면 강조(많으면 빨강, 적으면 파랑) */
+  th.bsumh{min-width:30px; width:30px; background:#eef2f7; border-left:2px solid #94a3b8; cursor:default}
+  th.bsumh .dnum, th.bsumh .dwd{font-size:10px; color:var(--sub); font-weight:500}
+  td.bsum{min-width:30px; width:30px; text-align:center; font-size:13px; font-weight:500; color:#6B7280; background:#f8fafc; border-left:2px solid #94a3b8; font-variant-numeric:tabular-nums}
+  td.bsum.over{color:#DC2626; background:#fef2f2}
+  td.bsum.under{color:#2563eb; background:#eff6ff}
+  td.bsum.np::after{content:"?"; font-size:9px; color:#854F0B; vertical-align:super; margin-left:1px}   /* 패턴 없는 날이 섞임(그 날은 안 셈) */
+  td.bsum.chg{text-decoration:underline dashed; text-underline-offset:3px}
+  tfoot td.bsum{background:#eef2f7}
+  /* 칠하기 미리보기(저장 전) */
+  td.cell.pend{outline:2px dashed #1E3A5F; outline-offset:-3px}
+  body.painting td.cell:not(.tail-na){cursor:crosshair}
+  body.painting #grid{user-select:none; -webkit-user-select:none}
   /* 집계(하단 고정) */
   tfoot td{
     position:sticky; bottom:0; z-index:6; background:#f8fafc; text-align:center;
@@ -231,6 +243,53 @@
   tfoot td.wpick{cursor:pointer; touch-action:manipulation}
   tfoot td.pickd{background:#e2e8f0; box-shadow:inset 0 -3px 0 #64748b}   /* 선택된 날(오늘 파랑과 색·방향으로 구분) */
 
+  /* 칠하기 입력 바(하단 고정) */
+  .paint-bar{position:fixed; left:0; right:0; bottom:0; z-index:30; background:#fff; border-top:1px solid var(--border);
+    box-shadow:0 -2px 10px rgba(0,0,0,.08); padding:8px 12px calc(8px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:6px}
+  .pb-brushes{display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px; max-width:1040px; width:100%; margin:0 auto}
+  .pb-b{flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:#fff; color:var(--ink);
+    font-family:inherit; font-size:13px; padding:7px 11px; border-radius:9px; cursor:pointer; white-space:nowrap}
+  .pb-b.sel{border:2px solid #1E3A5F; padding:6px 10px; font-weight:500}
+  .pb-b.pb-reset{border-style:dashed; color:var(--sub)}
+  .pb-b.pb-reset.sel{border-style:solid; color:var(--ink)}
+  .pb-vac{flex:0 0 auto; display:inline-flex; align-items:center; gap:2px}
+  .pb-vac select{font-family:inherit; font-size:12px; padding:6px 2px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--ink)}
+  .pb-act{display:flex; align-items:center; gap:6px; flex-wrap:wrap; max-width:1040px; width:100%; margin:0 auto}
+  .pb-msg{font-size:12px; color:var(--sub); margin-right:auto}
+  .btn:disabled{opacity:.45; cursor:default}
+  body.painting{padding-bottom:110px}
+  @media (max-width:560px){
+    .pb-msg{flex-basis:100%; margin-right:0}
+    .pb-act .btn{padding:6px 10px; font-size:12px}
+    body.painting{padding-bottom:150px}
+  }
+  /* 관리 메뉴 */
+  .mmenu{position:relative}
+  .mmenu-pop{display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:35; background:#fff; border:1px solid var(--border);
+    border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.12); padding:6px; flex-direction:column; gap:4px; min-width:140px}
+  .mmenu.open .mmenu-pop{display:flex}
+  .mmenu-pop .btn{text-align:left; border-color:transparent}
+  .mmenu-pop .btn:hover{background:#f1f5f9}
+  /* 내 스케줄 */
+  .my-hd{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px}
+  .my-hd h3{margin:0}
+  #my-nav{display:inline-flex; gap:4px}
+  .my-pick{display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:8px}
+  .my-cal{display:grid; grid-template-columns:repeat(7, 1fr); gap:3px}
+  .my-wd{font-size:11px; color:var(--sub); text-align:center; padding:2px 0}
+  .my-wd.sat{color:var(--sat)} .my-wd.sun{color:var(--sun)}
+  .my-day{border:1px solid var(--line); border-radius:6px; min-height:44px; padding:3px 4px; display:flex; flex-direction:column; justify-content:space-between; background:#fff}
+  .my-day.blank{border:0; background:transparent}
+  .my-day.off{background:#cbd5e1}
+  .my-day.k-vac{background:#E1F5EE; color:#085041} .my-day.k-sub{background:#EEEDFE; color:#3C3489}
+  .my-day.k-etc{background:#FBEAF0; color:#72243E} .my-day.k-grt{background:#FAEEDA; color:#633806}
+  .my-day.today{outline:2px solid #3b82f6; outline-offset:-2px}
+  .my-dn{font-size:12px; color:var(--ink)} .my-dn.sat{color:var(--sat)} .my-dn.sun{color:var(--sun)}
+  .my-lb{font-size:11px; text-align:right; color:inherit}
+  .my-day.work .my-lb{color:var(--sub)}
+  .my-sum{font-size:13px; color:var(--ink); margin-top:8px}
+  .my-sum b{font-weight:500; font-variant-numeric:tabular-nums}
+  .my-sum b.neg{color:#dc2626}
   /* 메모 팝업 */
   .sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; z-index:40}
   .sheet{
@@ -463,13 +522,20 @@
       <button id="next" aria-label="다음 달">›</button>
     </div>
     <button class="btn" id="today-btn">오늘</button>
-    <button class="btn adm-only" id="range-btn" style="display:none">기간 입력</button>
-    <button class="btn adm-only" id="work-btn" style="display:none">근무시간</button>
-    <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
-    <button class="btn adm-only" id="pat-btn" style="display:none">패턴</button>
-    <button class="btn adm-only" id="hol-btn" style="display:none">휴무일</button>
-    <button class="btn adm-only" id="dtx-btn" style="display:none">근무자 텍스트</button>
-    <button class="btn adm-only" id="pa-btn" style="display:none" onclick="togglePeriodAgg()">기간 집계</button>
+    <button class="btn" id="my-btn">내 스케줄</button>
+    <button class="btn adm-only" id="paint-btn" style="display:none">✎ 입력</button>
+    <button class="btn adm-only" id="dtx-btn" style="display:none">공유</button>
+    <div class="mmenu adm-only" id="mmenu" style="display:none">
+      <button class="btn" id="mmenu-btn" aria-haspopup="true">관리 ▾</button>
+      <div class="mmenu-pop" id="mmenu-pop">
+        <button class="btn adm-only" id="range-btn" style="display:none">기간 입력</button>
+        <button class="btn adm-only" id="pa-btn" style="display:none" onclick="togglePeriodAgg()">기간 집계</button>
+        <button class="btn adm-only" id="pat-btn" style="display:none">휴무 패턴</button>
+        <button class="btn adm-only" id="emp-btn" style="display:none">직원</button>
+        <button class="btn adm-only" id="hol-btn" style="display:none">휴무일</button>
+        <button class="btn adm-only" id="work-btn" style="display:none">근무시간</button>
+      </div>
+    </div>
     <span class="hol-count" id="hol-count"></span>
   </div>
 
@@ -506,20 +572,24 @@
 
   <div id="work-summary" class="work-summary adm-only" style="display:none"></div>
 
-  <!-- 셀 다중 선택 일괄 지정 바(관리자) -->
-  <div id="sel-bar" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;background:#1e293b;color:#fff;padding:10px 14px;flex-wrap:wrap;align-items:center;gap:8px;box-shadow:0 -2px 10px rgba(0,0,0,.25)">
-    <span id="sel-count" style="font-weight:700;font-size:14px;margin-right:auto"></span>
-    <button class="btn" id="sel-off"    style="background:#64748b;color:#fff">휴무</button>
-    <button class="btn" id="sel-work"   style="background:#2563eb;color:#fff">근무</button>
-    <select id="sel-annual-kind" title="휴가 종류" style="background:#0e7490;color:#fff;border:1px solid #155e75;border-radius:8px;padding:6px 4px;font-family:inherit;font-size:12px">
-      <option value="정기휴가">정기휴가</option>
-      <option value="여름휴가">여름휴가</option>
-    </select>
-    <button class="btn" id="sel-annual" style="background:#0891b2;color:#fff">휴가</button>
-    <button class="btn" id="sel-luse"   style="background:#7c3aed;color:#fff">대체휴무</button>
-    <button class="btn" id="sel-lgrant" style="background:#059669;color:#fff">대체근무</button>
-    <button class="btn" id="sel-etc"    style="background:#b45309;color:#fff">경조사</button>
-    <button class="btn" id="sel-clear"  style="background:transparent;color:#cbd5e1;border:1px solid #475569">해제</button>
+  <!-- 칠하기 입력 바(관리자) — [✎ 입력]을 누르면 하단에 고정 -->
+  <div id="paint-bar" class="paint-bar" style="display:none">
+    <div class="pb-brushes" id="pb-brushes">
+      <button type="button" class="pb-b" data-b="off"><i class="sw off"></i>휴무</button>
+      <button type="button" class="pb-b" data-b="work"><i class="sw work"></i>근무</button>
+      <span class="pb-vac"><button type="button" class="pb-b" data-b="annual"><i class="sw k-vac"></i>휴가</button><select id="pb-annual-kind" title="휴가 종류"><option value="정기휴가">정기</option><option value="여름휴가">여름</option></select></span>
+      <button type="button" class="pb-b" data-b="leave_use"><i class="sw k-sub"></i>대체휴무</button>
+      <button type="button" class="pb-b" data-b="leave_grant"><i class="sw k-grt"></i>대체근무</button>
+      <button type="button" class="pb-b" data-b="etc"><i class="sw k-etc"></i>경조사</button>
+      <button type="button" class="pb-b pb-reset" data-b="reset">패턴대로</button>
+    </div>
+    <div class="pb-act">
+      <span class="pb-msg" id="pb-msg"></span>
+      <button type="button" class="btn" id="pb-range">기간·시간</button>
+      <button type="button" class="btn" id="pb-undo">되돌리기</button>
+      <button type="button" class="btn pri" id="pb-save">저장</button>
+      <button type="button" class="btn" id="pb-done">입력 끝</button>
+    </div>
   </div>
 </div>
 
@@ -584,6 +654,19 @@
   <div class="memo-date" id="view-date"></div>
   <div class="memo-text" id="view-text"></div>
   <button class="close" id="view-close">닫기</button>
+</div>
+
+<!-- 내 스케줄(누구나, 조회 전용) -->
+<div class="sheet" id="my-sheet">
+  <div class="my-hd">
+    <h3 id="my-title">내 스케줄</h3>
+    <span id="my-nav"><button type="button" class="btn" id="my-prev" aria-label="이전 달">‹</button><button type="button" class="btn" id="my-next" aria-label="다음 달">›</button></span>
+  </div>
+  <div id="my-body"></div>
+  <div class="row2">
+    <button class="btn2 ghost" id="my-change">다른 이름</button>
+    <button class="btn2 pri" id="my-close">닫기</button>
+  </div>
 </div>
 
 <!-- 직원별 휴무 종합(조회 전용 — 이름 클릭) -->
@@ -1068,24 +1151,41 @@ function render() {
   }
   document.getElementById("grid-msg").style.display = "none";
 
-  // 헤더 (날짜 행 + 전체 공지 라벨 행)
+  /* ★열 모델: 이번 달 1일~말일 + 다음 달 초(tail, 말일이 든 주의 일요일까지)를 한 줄로 이어 그린다.
+     2주 블록(REST_BLOCK_ANCHOR 기준)이 끝나는 일요일 뒤마다 '2주' 휴무 칸을 끼운다.
+     마지막 열이 블록 끝이 아니면 맨 끝에도 하나 붙인다(그 블록 전체 14일 기준 — 화면 밖 날짜는 다른 달 자료로 센다). */
   const hasEvt = ds => Array.isArray(state.events[ds]) && state.events[ds].length > 0;
   const monthHasEvt = Object.keys(state.events).some(ds => hasEvt(ds));
+  const tail = state.tail || [];
+  const cols = [];
+  for (let d=1; d<=dim; d++) cols.push({ y, m, d, ds: dateStr(y,m,d), tail: false, ti: -1 });
+  tail.forEach((t, ti) => cols.push({ y: t.y, m: t.m, d: t.d, ds: t.ds, tail: true, ti }));
+  cols.forEach((c, i) => {
+    c.wd = weekday(c.y, c.m, c.d);
+    const b = restBlockOf(c.ds);
+    c.bfrom = b.from; c.bto = b.to;
+    c.sumAfter = (b.to === c.ds) || (i === cols.length - 1);   // 블록 끝(일요일) 또는 마지막 열
+    c.wkLine = i > 0 && c.wd === 1 && c.ds !== b.from;          // 블록 안 둘째 주 월요일 = 옅은 주 구분선
+  });
+  const bsumTitle = c => `2주 휴무(순수) ${c.bfrom.slice(5).replace("-","/")}~${c.bto.slice(5).replace("-","/")} — 기준 4일`;
+
+  // 헤더 (날짜 행 + 전체 공지 라벨 행)
   let thead = `<tr><th class="corner">직원</th>`;
   let evtRow = `<tr class="evt-row"><th class="evt-corner">공지</th>`;
-  for (let d=1; d<=dim; d++){
-    const ds = dateStr(y,m,d);
-    const wd = weekday(y,m,d);
-    const holName = state.holidays[ds];
-    let cls = (wd===0?"sun":wd===6?"sat":"") + " evth";
+  cols.forEach(c => {
+    const holName = state.holidays[c.ds];
+    let cls = (c.wd===0?"sun":c.wd===6?"sat":"") + " evth";
+    if (c.tail) cls = "tailh " + cls + (c.ti===0 ? " tail-first" : "");
     if (holName) cls += " hol";           // 공휴일 빨강(토/일/오늘과 공존, 색은 빨강 우선)
-    if (isToday(y,m,d)) cls += " today";
-    if (hasEvt(ds)) cls += " ecol";
+    if (isToday(c.y,c.m,c.d)) cls += " today";
+    if (!c.tail && hasEvt(c.ds)) cls += " ecol";
+    if (c.wkLine) cls += " wkl";
     const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";   // 긴 대체공휴일명 축약(나머지는 CSS 말줄임)
     const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
-    thead += `<th class="${cls.trim()}" data-date="${ds}" data-evt-date="${ds}"><div class="dnum">${d}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
-    // 이벤트 라벨 셀: 첫 이벤트 제목(+N), 색은 이벤트 color
-    const evs = state.events[ds] || [];
+    const dnum = (c.tail && c.ti===0) ? `${c.m}/${c.d}` : String(c.d);   // 다음 달 첫 칸만 "M/D"
+    thead += `<th class="${cls.replace(/\s+/g," ").trim()}" data-date="${c.ds}" data-evt-date="${c.ds}"><div class="dnum">${dnum}</div><div class="dwd">${WD[c.wd]}</div>${holLine}</th>`;
+    // 이벤트 라벨 셀: 첫 이벤트 제목(+N), 색은 이벤트 color (다음 달 칸은 공지를 안 불러 빈칸)
+    const evs = c.tail ? [] : (state.events[c.ds] || []);
     let chip = "";
     if (evs.length){
       const first = evs[0];
@@ -1093,22 +1193,12 @@ function render() {
       const col = first.color || "#f59e0b";
       chip = `<span class="evt-chip" style="background:${esc(col)}22;color:${esc(col)}" title="${esc(evs.map(e=>e.title).join(", "))}">${esc(first.title)}${more}</span>`;
     }
-    evtRow += `<th class="${hasEvt(ds) ? "ecol" : ""}" data-evt-date="${ds}">${chip}</th>`;
-  }
-  // ★다음 달 초 이어 붙이기 — 월말 주차를 한 화면에서 짜려고. 흐린 배경 + 첫 칸 굵은 구분선으로 구분.
-  const tail = state.tail || [];
-  tail.forEach((t, ti) => {
-    const wd = weekday(t.y, t.m, t.d);
-    const holName = state.holidays[t.ds];
-    let cls = "tailh " + (wd===0?"sun":wd===6?"sat":"") + " evth" + (ti===0 ? " tail-first" : "");
-    if (holName) cls += " hol";
-    if (isToday(t.y, t.m, t.d)) cls += " today";
-    const holShort = holName ? (holName.startsWith("대체공휴일") ? "대체" : holName) : "";
-    const holLine = holName ? `<div class="dhol" title="${esc(holName)}">${esc(holShort)}</div>` : "";
-    // ★첫 칸에만 "N월"을 붙여 어느 달인지 바로 보이게(나머지는 날짜만).
-    const dnum = ti===0 ? `${t.m}/${t.d}` : String(t.d);
-    thead += `<th class="${cls.replace(/\s+/g," ").trim()}" data-date="${t.ds}" data-evt-date="${t.ds}"><div class="dnum">${dnum}</div><div class="dwd">${WD[wd]}</div>${holLine}</th>`;
-    evtRow += `<th class="tailh${ti===0 ? " tail-first" : ""}" data-evt-date="${t.ds}"></th>`;
+    const ecls = c.tail ? `tailh${c.ti===0 ? " tail-first" : ""}` : (hasEvt(c.ds) ? "ecol" : "");
+    evtRow += `<th class="${ecls}${c.wkLine ? " wkl" : ""}" data-evt-date="${c.ds}">${chip}</th>`;
+    if (c.sumAfter) {
+      thead += `<th class="bsumh" title="${bsumTitle(c)}"><div class="dnum">2주</div><div class="dwd">휴무</div></th>`;
+      evtRow += `<th class="bsumh"></th>`;
+    }
   });
   thead += `</tr>`;
   evtRow += `</tr>`;
@@ -1116,136 +1206,111 @@ function render() {
 
   // 본문
   let tbody = "";
-  // 순수 휴무 판별: 장부(연차·대체휴무/근무·경조사)에 있는 (eid|date)는 순수 휴무 아님 — 공용 isPureOffDay(집합은 한 번만 만든다)
-  const ledgerDays = pureOffLedgerSet();
-  const isPureOff = (eid, dstr, cs) => isPureOffDay(eid, dstr, cs.status, ledgerDays);
   const kinds = cellKindMap();   // 칸 유형 색·코드(표시 전용) — render 1회당 1번
   // 유형 코드 + (직접 쓴 사유가 있으면) 메모 점
   const kindInner = (k, memo) => `<span class="kcode">${CELL_KIND_CODE[k]}</span>`
     + ((memo && memo !== CELL_KIND_LABEL[k]) ? `<span class="memo"></span>` : "");
-  // 주차(월~일) 구간 — 그 달 날짜 기준(경계 주는 그 달 부분만). weekOffs와 동일 규칙.
-  const weeks = [];
-  for (let d=1; d<=dim; d++){ if (d===1 || weekday(y,m,d)===1) weeks.push([]); weeks[weeks.length-1].push(d); }
-  const weekAnom = weeks.map(() => []);   // 주별 특이자 [{name,count}] (순수 휴무 2일 아님)
+  const me = myEmpId();
   for (const emp of state.employees){
-    // 그 달 셀 상태 미리 계산
+    // 그 달 셀 상태 미리 계산(띠는 이번 달 칸 안에서만 — 기존 규칙)
     const cells = [];
     for (let d=1; d<=dim; d++) cells.push(cellStatus(emp,y,m,d));
     // 연속 사유 휴무(off + 같은 memo, 2일 이상) → 띠(span) 정보 계산
     const span = new Array(dim).fill(null);       // 'start'|'mid'|'end'
-    const labelAt = new Array(dim).fill(false);   // 띠 첫 칸(사유 라벨 위치)
+    const labelAt = new Array(dim).fill(0);       // 띠 첫 칸(사유 라벨 위치) = 띠 길이(칸 수), 아니면 0
     for (let i=0; i<dim; ){
       const cs = cells[i];
       if (cs.status==="off" && cs.memo){
         let j=i;
         while (j+1<dim && cells[j+1].status==="off" && cells[j+1].memo===cs.memo) j++;
         if (j-i+1 >= 2){
-          labelAt[i] = true;
+          labelAt[i] = j-i+1;
           for (let k=i; k<=j; k++) span[k] = k===i ? "start" : (k===j ? "end" : "mid");
         }
         i = j+1;
       } else i++;
     }
-    // 주차별(월~일) 휴무 수 — 그 달 날짜만 카운트(달 경계 주는 그 달 날짜만). cellStatus 재사용.
-    const weekOffs = [];
-    for (let d=1; d<=dim; d++){
-      if (d===1 || weekday(y,m,d)===1) weekOffs.push(0);   // 월요일(또는 1일) = 새 주 시작
-      if (isPureOff(emp.id, dateStr(y,m,d), cells[d-1])) weekOffs[weekOffs.length-1]++;   // 순수 휴무만(연차·대체·경조사 제외)
-    }
-    const woTitle = weekOffs.map((n,i) => `${i+1}주차 ${n}일`).join(", ");
-    const woHtml = weekOffs.map(n => {
-      const c = n > 2 ? " wo-over" : (n < 2 ? " wo-under" : "");   // 기본 2와 다르면 강조
-      return `<span class="wo${c}">${n}</span>`;
-    }).join(`<span class="wo-sep">·</span>`);
-    weekOffs.forEach((n, wi) => { if (n !== 2) weekAnom[wi].push({ name: emp.name, count: n }); });   // 주별 특이자(2일 아님)
     // 렌더
-    let row = `<tr><td class="name" data-eid="${emp.id}"><div class="nm-name">${esc(emp.name)}</div><div class="wk-off" title="${woTitle}">${woHtml}</div></td>`;
-    for (let d=1; d<=dim; d++){
-      const cs = cells[d-1], sp = span[d-1];
-      const ov = state.overrides[emp.id + "|" + dateStr(y,m,d)];
-      const adj = (ov && ov.day_start && ov.day_end) ? ov : null;   // 시간 조정된 날
-      let cls = "cell " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
-      if (cs.isException) cls += " exc";
-      if (isToday(y,m,d)) cls += " tcol";
-      if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
-      if (sp) cls += " span span-" + sp;
-      const kind = cellKindOf(kinds, emp.id, dateStr(y,m,d), cs);
-      if (kind) cls += " k-" + kind;
-      if (_selCells.has(emp.id + "|" + dateStr(y,m,d))) cls += " selected";
-      // 시간 조정은 관리자 전용 — 게스트에겐 툴팁에도 시간 안 나감(셀 숫자와 일관)
-      const timeStr = (adj && state.isAdmin)
-        ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
-        : "";
-      // 시간 조정된 날은 메모도 시간 사정을 담고 있어 게스트에겐 숨김(점·툴팁·data-memo).
-      // ★시간 조정 없는 날의 일반 메모는 게스트에게도 그대로. 띠 사유 라벨(span-label)도 그대로.
-      const memoShown = (adj && !state.isAdmin) ? "" : cs.memo;
-      const titleText = timeStr ? timeStr + (memoShown ? ` · ${memoShown}` : "") : (memoShown || "");
-      const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
-        + (memoShown ? ` data-memo="${esc(memoShown)}"` : "")
-        + (titleText ? ` title="${esc(titleText)}"` : "");
-      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 유형: 코드(대휴 등) / 단일 memo: 점
-      const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
-        : sp ? ""
-        : (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
-        : kind ? kindInner(kind, memoShown)
-        : (memoShown ? `<span class="memo"></span>` : "");
-      row += `<td class="${cls}"${attrs}>${inner}</td>`;
-    }
-    // ★다음 달 칸 — 편집이 목적이라 클릭·저장은 그대로 되게 둔다(data-eid/data-date 부여).
-    //   저장은 commitOverride → patternStatusOf → patternsFor가 '그 달 패턴'을 보므로 정확히 다음 달로 들어간다.
-    //   ★퇴사한 사람은 그 날 재직이 아니므로 빈 칸으로 두고 클릭도 막는다(집계에서도 빠진다).
-    tail.forEach((t, ti) => {
-      const first = ti===0 ? " tail-first" : "";
-      if (!empActiveOnDate(emp, t.ds)) { row += `<td class="cell tail tail-na${first}"></td>`; return; }
-      const cs = cellStatus(emp, t.y, t.m, t.d);
-      const ov = state.overrides[emp.id + "|" + t.ds];
-      const adj = (ov && ov.day_start && ov.day_end) ? ov : null;
-      let cls2 = "cell tail" + first + " " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
-      if (cs.isException) cls2 += " exc";
-      if (isToday(t.y, t.m, t.d)) cls2 += " tcol";
-      const kind2 = cellKindOf(kinds, emp.id, t.ds, cs);
-      if (kind2) cls2 += " k-" + kind2;
-      if (_selCells.has(emp.id + "|" + t.ds)) cls2 += " selected";
-      const memoShown2 = (adj && !state.isAdmin) ? "" : cs.memo;
-      const attrs2 = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${t.ds}"`
-        + (memoShown2 ? ` data-memo="${esc(memoShown2)}"` : "")
-        + (memoShown2 ? ` title="${esc(memoShown2)}"` : "");
-      const inner2 = (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
-        : kind2 ? kindInner(kind2, memoShown2)
-        : (memoShown2 ? `<span class="memo"></span>` : "");
-      row += `<td class="${cls2}"${attrs2}>${inner2}</td>`;
+    let row = `<tr${String(emp.id) === me ? ` class="me-row"` : ""}><td class="name${String(emp.id) === me ? " me" : ""}" data-eid="${emp.id}"><div class="nm-name">${esc(emp.name)}</div></td>`;
+    cols.forEach(c => {
+      const key = emp.id + "|" + c.ds;
+      const tailCls = c.tail ? " tail" + (c.ti===0 ? " tail-first" : "") : "";
+      const wkl = c.wkLine ? " wkl" : "";
+      if (c.tail && !empActiveOnDate(emp, c.ds)) {   // ★퇴사한 사람은 그 날 재직이 아니므로 빈 칸 + 클릭 불가
+        row += `<td class="cell tail tail-na${c.ti===0 ? " tail-first" : ""}${wkl}"></td>`;
+      } else {
+        const cs = c.tail ? cellStatus(emp, c.y, c.m, c.d) : cells[c.d-1];
+        const sp = c.tail ? null : span[c.d-1];
+        const lab = c.tail ? 0 : labelAt[c.d-1];
+        const ov = state.overrides[key];
+        const adj = (ov && ov.day_start && ov.day_end) ? ov : null;   // 시간 조정된 날
+        const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${c.ds}"`;
+        const pend = _paint.pend.get(key);
+        if (pend) {
+          // ★입력 미리보기(저장 전) — 점선 테두리. 장부·DB는 아직 그대로.
+          const def = RANGE_TYPES[pend];
+          const st = def.reset ? patternStatusOf(emp.id, c.y, c.m, c.d) : def.status;
+          const pk = TYPE_KIND[pend] || "";
+          let cls = "cell pend" + tailCls + wkl + " " + (st === "off" ? "off" : "work") + (pk ? " k-" + pk : "");
+          if (isToday(c.y,c.m,c.d)) cls += " tcol";
+          row += `<td class="${cls}"${attrs} title="저장 전: ${esc(def.label)}">${pk ? `<span class="kcode">${CELL_KIND_CODE[pk]}</span>` : ""}</td>`;
+        } else {
+          let cls = "cell" + tailCls + wkl + " " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
+          if (cs.isException) cls += " exc";
+          if (isToday(c.y,c.m,c.d)) cls += " tcol";
+          if (!c.tail && hasEvt(c.ds)) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
+          if (sp) cls += " span span-" + sp;
+          const kind = cellKindOf(kinds, emp.id, c.ds, cs);
+          if (kind) cls += " k-" + kind;
+          // 시간 조정은 관리자 전용 — 게스트에겐 툴팁에도 시간 안 나감(셀 숫자와 일관)
+          const timeStr = (adj && state.isAdmin)
+            ? `출근 ${adj.day_start} · 퇴근 ${adj.day_end} · 휴게 ${Number(adj.day_break_min)||0}분 · 실근무 ${fmtHM(dayMinutes(adj))}`
+            : "";
+          // 시간 조정된 날은 메모도 시간 사정을 담고 있어 게스트에겐 숨김(점·툴팁·data-memo).
+          const memoShown = (adj && !state.isAdmin) ? "" : cs.memo;
+          const titleText = timeStr ? timeStr + (memoShown ? ` · ${memoShown}` : "") : (memoShown || "");
+          const attrs2 = attrs
+            + (memoShown ? ` data-memo="${esc(memoShown)}"` : "")
+            + (titleText ? ` title="${esc(titleText)}"` : "");
+          // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 유형: 코드(대휴 등) / 단일 memo: 점
+          // ★띠 라벨은 띠 길이만큼 옆 칸 위로 펼친다(첫 칸 폭을 늘리지 않게 — 예전엔 긴 사유가 그 날 열을 넓혔다)
+          const inner = lab ? `<span class="span-label" style="max-width:${lab * 30 - 4}px">${esc(cs.memo)}</span>`
+            : sp ? ""
+            : (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+            : kind ? kindInner(kind, memoShown)
+            : (memoShown ? `<span class="memo"></span>` : "");
+          row += `<td class="${cls}"${attrs2}>${inner}</td>`;
+        }
+      }
+      if (c.sumAfter) row += `<td class="bsum" data-eid="${emp.id}" data-bfrom="${c.bfrom}" data-bto="${c.bto}" title="${bsumTitle(c)}">·</td>`;
     });
     tbody += row + `</tr>`;
   }
 
-  // 집계 (근무/휴무) — 미설정도 근무로 카운트되어 근무+휴무 = 재직 인원
+  // 집계 (근무/휴무) — 미설정도 근무로 카운트되어 근무+휴무 = 재직 인원. ★저장된 값 기준(미리보기 미반영).
   let workRow = `<tr class="work-row"><td class="name">근무</td>`;
   let offRow  = `<tr class="off-row"><td class="name">휴무</td>`;
-  for (let d=1; d<=dim; d++){
+  cols.forEach(c => {
     let w=0, o=0;
     for (const emp of state.employees){
-      (cellStatus(emp,y,m,d).status==="off") ? o++ : w++;
+      if (c.tail && !empActiveOnDate(emp, c.ds)) continue;   // 다음 달 칸은 그 날 재직자만(기존 규칙)
+      (cellStatus(emp, c.y, c.m, c.d).status==="off") ? o++ : w++;
     }
-    const ds = dateStr(y,m,d);
-    let t = isToday(y,m,d) ? " tcol" : "";
-    if (hasEvt(ds)) t += " ecol";
-    // 근무 인원 숫자 = 그 날 근무자 보기 버튼(클릭 토글). 선택 중이면 강조.
-    const wsel = (crewPickDate && crewPickDate.y===y && crewPickDate.m===m && crewPickDate.d===d) ? " pickd" : "";
-    workRow += `<td class="wpick${t}${wsel}" data-ds="${ds}">${w}</td>`;
-    offRow  += `<td class="${t.trim()}">${o}</td>`;
-  }
-  // ★다음 달 칸의 근무/휴무 수 — 그 날짜의 값이라 '이번 달 통계'를 오염시키지 않는다(배치 판단에 필요해 표시).
-  //   ※주별 순수휴무 패널·월 요약은 1일~말일만 세므로 그대로다(tail 미포함).
-  //   ※근무자 보기(wpick) 토글은 안 붙인다 — renderTodayCrew가 보고 있는 달만 그려서 눌러도 아무 일도 안 난다.
-  tail.forEach((t, ti) => {
-    let w2=0, o2=0;
-    for (const emp of state.employees){
-      if (!empActiveOnDate(emp, t.ds)) continue;
-      (cellStatus(emp, t.y, t.m, t.d).status==="off") ? o2++ : w2++;
+    const wkl = c.wkLine ? " wkl" : "";
+    if (c.tail) {
+      // ★다음 달 칸의 근무/휴무 수 — 근무자 보기(wpick) 토글은 안 붙인다(renderTodayCrew가 보고 있는 달만 그림)
+      const first = c.ti===0 ? " tail-first" : "";
+      workRow += `<td class="tail${first}${wkl}">${w}</td>`;
+      offRow  += `<td class="tail${first}${wkl}">${o}</td>`;
+    } else {
+      let t = isToday(c.y,c.m,c.d) ? " tcol" : "";
+      if (hasEvt(c.ds)) t += " ecol";
+      // 근무 인원 숫자 = 그 날 근무자 보기 버튼(클릭 토글). 선택 중이면 강조.
+      const wsel = (crewPickDate && crewPickDate.y===c.y && crewPickDate.m===c.m && crewPickDate.d===c.d) ? " pickd" : "";
+      workRow += `<td class="wpick${t}${wsel}${wkl}" data-ds="${c.ds}">${w}</td>`;
+      offRow  += `<td class="${(t + wkl).trim()}">${o}</td>`;
     }
-    const first = ti===0 ? " tail-first" : "";
-    workRow += `<td class="tail${first}">${w2}</td>`;
-    offRow  += `<td class="tail${first}">${o2}</td>`;
+    if (c.sumAfter) { workRow += `<td class="bsum"></td>`; offRow += `<td class="bsum"></td>`; }
   });
   workRow += `</tr>`; offRow += `</tr>`;
 
@@ -1255,6 +1320,7 @@ function render() {
   renderLeaveBar();
   renderTodayCrew();
   renderWorkSummary();
+  fillBlockSums();   // 2주 휴무 칸 채우기(다른 달 날짜가 섞이면 그 달 자료를 받아야 해서 비동기)
 }
 
 /* ── 2주 휴무 블록 기준 ── 회사 규칙: 2주 블록마다 순수 휴무 4일. REST_BLOCK_ANCHOR(월요일)에서 14일씩 앞뒤로 끊는다(달 경계와 무관).
@@ -1268,6 +1334,61 @@ function restBlockOf(ds, shift) {
   const start = (Math.floor(diff / 14) + (shift || 0)) * 14;
   const at = n => { const t = new Date(ay, am - 1, ad + n); return dateStr(t.getFullYear(), t.getMonth() + 1, t.getDate()); };
   return { from: at(start), mid: at(start + 7), to: at(start + 13) };
+}
+
+/* ── 근무표 '2주' 휴무 칸 채우기 ── render()가 그린 td.bsum(직원×블록)에 순수 휴무 수를 넣는다. 계산은 pureOffInRange 재사용.
+   ★블록이 다른 달에 걸치면 그 달 자료가 필요해 비동기다. 다시 그려지면(번호가 바뀌면) 늦게 끝난 옛 결과는 버린다.
+   ★입력 미리보기(저장 전 칸)가 있으면 그 칸의 변화만큼 더해 보여준다(점선 밑줄 = 저장 전 예상값). */
+let _bsReq = 0;
+async function fillBlockSums() {
+  const req = ++_bsReq;
+  const tds = Array.from(document.querySelectorAll("#grid td.bsum[data-eid]"));
+  if (!tds.length) return;
+  const cur = ymStr(state.y, state.m);
+  const months = new Set();
+  tds.forEach(td => eachDateInclusive(td.dataset.bfrom, td.dataset.bto).forEach(ds => months.add(ds.slice(0, 7))));
+  try {
+    await Promise.all([...months].filter(ym => ym !== cur).map(dtxEnsureMonth));   // 한 번만 받아 둔다(직원마다 다시 안 받게)
+  } catch (e) {
+    if (req === _bsReq) tds.forEach(td => { td.textContent = "?"; td.title = "다른 달 자료를 불러오지 못했습니다"; });
+    return;
+  }
+  if (req !== _bsReq) return;
+  const ledgerDays = pureOffLedgerSet();
+  for (const td of tds) {
+    const emp = state.employees.find(e => String(e.id) === td.dataset.eid);
+    if (!emp) continue;
+    let r;
+    try { r = await pureOffInRange(emp, td.dataset.bfrom, td.dataset.bto); } catch (e) { r = null; }
+    if (req !== _bsReq) return;   // 그 사이 다시 그려졌다
+    if (!r) { td.textContent = "?"; continue; }
+    const delta = paintPureDelta(emp, td.dataset.bfrom, td.dataset.bto, ledgerDays);
+    const n = r.pure + delta;
+    td.textContent = String(n);
+    td.classList.toggle("over", n > 4);
+    td.classList.toggle("under", n < 4);
+    td.classList.toggle("chg", delta !== 0);
+    td.classList.toggle("np", r.noPattern > 0);
+    td.title = td.title.split(" · ")[0]
+      + (delta !== 0 ? ` · 저장 전 예상(저장된 값 ${r.pure})` : "")
+      + (r.noPattern > 0 ? ` · 패턴 없는 날 ${r.noPattern}일(세지 않음)` : "");
+  }
+}
+// 입력 미리보기가 블록 휴무 수를 얼마나 바꾸는지(저장 전 예상치). 보이는 칸만 칠할 수 있어 state 자료로 계산된다.
+function paintPureDelta(emp, fromDs, toDs, ledgerDays) {
+  let delta = 0;
+  _paint.pend.forEach((type, key) => {
+    const i = key.indexOf("|");
+    if (key.slice(0, i) !== String(emp.id)) return;
+    const ds = key.slice(i + 1);
+    if (ds < fromDs || ds > toDs) return;
+    const [yy, mm, dd] = ds.split("-").map(Number);
+    const before = isPureOffDay(emp.id, ds, cellStatus(emp, yy, mm, dd).status, ledgerDays) ? 1 : 0;
+    const def = RANGE_TYPES[type];
+    const after = (type === "off" || (def.reset && patternStatusOf(emp.id, yy, mm, dd) === "off")) ? 1 : 0;   // 패턴대로 = 장부도 지워지므로 패턴 휴무면 순수 휴무
+    delta += after - before;
+  });
+  return delta;
 }
 
 /* ── 기간 집계(관리자, 스케줄 탭 근무표 위) ──
@@ -2168,7 +2289,7 @@ function openEditSheet(eid, date, name) {
   // 시간 조정된 날은 메모도 게스트에겐 숨김(셀 툴팁과 동일 규칙). 조정 없는 날 메모는 그대로.
   const memoShown = (adj && !state.isAdmin) ? "" : cs.memo;
   document.getElementById("edit-memo").textContent = memoShown || "—";
-  document.getElementById("edit-hint").textContent = state.isAdmin ? "수정은 상단 [기간 입력]에서 하세요." : "";
+  document.getElementById("edit-hint").textContent = state.isAdmin ? "바꾸려면 상단 [✎ 입력]을 누르세요." : "";
   openSheetEl("edit-sheet");
 }
 // 그날 패턴 상태(근무/휴무)
@@ -2203,95 +2324,181 @@ async function commitOverride(eid, date, status, memo, adj) {
   }
 }
 
-/* ── 셀 다중 선택 → 일괄 지정(관리자 전용, 휴무/근무). 흩어진 날 빠른 입력. 기간 폼과 병행 ── */
-const _selCells = new Set();   // key = eid|date
-function toggleCellSelect(td) {
-  const key = td.dataset.eid + "|" + td.dataset.date;
-  if (_selCells.has(key)) { _selCells.delete(key); td.classList.remove("selected"); }
-  else { _selCells.add(key); td.classList.add("selected"); }
-  updateSelBar();
+/* ── 칠하기 입력(관리자): [입력] → 유형(브러시) 고르기 → 칸 누르기/끌기 → 점선 미리보기 → [저장] ──
+   ★저장 전에는 화면만 바뀐다(DB·장부 그대로). [저장]을 눌러야 bulkApply가 한 번에 기록한다.
+   ★지금과 같은 유형으로 칠하면 바뀔 게 없어서 미리보기에 넣지 않는다(같은 장부를 지웠다 다시 쓰며 사유가 날아가는 것 방지).
+   ★긴 기간·시간 조정은 기존 [기간 입력] 시트(applyRange) 그대로. */
+const TYPE_KIND = { annual: "vac", leave_use: "sub", leave_grant: "grt", etc: "etc" };   // 입력 유형 → 칸 유형
+const KIND_TYPE = { vac: "annual", sub: "leave_use", grt: "leave_grant", etc: "etc" };   // 칸 유형 → 입력 유형
+const _paint = { on: false, brush: "off", pend: new Map(), drag: false, mouse: false };   // pend: "eid|date" → 입력 유형
+// 그 칸의 지금 유형(입력 유형 키로). 패턴대로(reset)는 지울 게 없으면(override·장부 둘 다 없음) 'reset'으로 본다.
+function paintCurType(emp, ds, kinds, ledgerSet) {
+  const [yy, mm, dd] = ds.split("-").map(Number);
+  const cs = cellStatus(emp, yy, mm, dd);
+  const k = cellKindOf(kinds, emp.id, ds, cs);
+  return k ? KIND_TYPE[k] : cs.status;   // 'work' | 'off' | 장부 유형
 }
-function updateSelBar() {
-  const bar = document.getElementById("sel-bar");
-  if (!bar) return;
-  if (state.isAdmin && state.tab === "schedule" && _selCells.size > 0) {
-    bar.style.display = "flex";
-    document.getElementById("sel-count").textContent = `${_selCells.size}칸 선택됨`;
+function paintIsNoop(emp, ds, brush, kinds, ledgerSet) {
+  const key = emp.id + "|" + ds;
+  if (brush === "reset") return !state.overrides[key] && !ledgerSet.has(String(emp.id) + "|" + ds);
+  return paintCurType(emp, ds, kinds, ledgerSet) === brush;
+}
+// 칸 하나 칠하기. toggle=true(탭)면 같은 브러시로 다시 누를 때 미리보기를 지운다. 끌기(drag)는 덧칠만.
+function paintCell(td, toggle) {
+  if (!_paint.on || !state.isAdmin || !td || !td.dataset.eid || !td.dataset.date) return;
+  const emp = state.employees.find(e => String(e.id) === String(td.dataset.eid));
+  if (!emp) return;
+  const key = emp.id + "|" + td.dataset.date;
+  const b = _paint.brush;
+  const prev = _paint.pend.get(key);
+  if (prev === b) { if (!toggle) return; _paint.pend.delete(key); }
+  else if (paintIsNoop(emp, td.dataset.date, b, cellKindMap(), pureOffLedgerSet())) { if (prev === undefined) return; _paint.pend.delete(key); }
+  else _paint.pend.set(key, b);
+  render();
+  updatePaintBar();
+}
+function setPaintBrush(b) {
+  if (!RANGE_TYPES[b] || b === "overtime") return;
+  _paint.brush = b;
+  document.querySelectorAll("#pb-brushes .pb-b").forEach(el => el.classList.toggle("sel", el.dataset.b === b));
+}
+function updatePaintBar() {
+  const bar = document.getElementById("paint-bar");
+  const btn = document.getElementById("paint-btn");
+  const show = _paint.on && state.isAdmin && state.tab === "schedule";
+  bar.style.display = show ? "" : "none";
+  document.body.classList.toggle("painting", show);
+  if (btn) { btn.classList.toggle("on", show); btn.textContent = show ? "✎ 입력 중" : "✎ 입력"; }
+  const n = _paint.pend.size;
+  document.getElementById("pb-msg").textContent = n ? `${n}칸 바뀜 · 점선 = 저장 전` : "유형을 고르고 칸을 누르세요(PC는 끌어서 여러 칸)";
+  document.getElementById("pb-save").disabled = !n;
+  document.getElementById("pb-undo").disabled = !n;
+}
+// 저장 안 한 미리보기가 있으면 버릴지 묻는다. 진행해도 되면 true(미리보기는 비운다).
+function paintGuard() {
+  if (!_paint.pend.size) return true;
+  if (!confirm(`저장하지 않은 변경 ${_paint.pend.size}칸이 있습니다. 버리고 계속할까요?`)) return false;
+  _paint.pend.clear();
+  render();
+  updatePaintBar();
+  return true;
+}
+function togglePaint() {
+  if (!state.isAdmin) return;
+  if (_paint.on) {
+    if (!paintGuard()) return;
+    _paint.on = false;
   } else {
-    bar.style.display = "none";
+    _paint.on = true;
+    setPaintBrush(_paint.brush);
+  }
+  updatePaintBar();
+}
+// 미리보기 비우기(달 이동·탭 전환·로그아웃 공용 — 기존 이름 유지)
+function clearSelection() {
+  if (_paint.pend.size) { _paint.pend.clear(); if (state.tab === "schedule" && document.querySelector("#grid table")) render(); }
+  if (!state.isAdmin) _paint.on = false;
+  updatePaintBar();
+}
+function paintUndo() {
+  if (!_paint.pend.size) return;
+  _paint.pend.clear();
+  render();
+  updatePaintBar();
+}
+async function savePaint() {
+  if (!state.isAdmin || !_paint.pend.size) return;
+  const items = [..._paint.pend].map(([k, type]) => { const i = k.indexOf("|"); return { eid: k.slice(0, i), date: k.slice(i + 1), type }; });
+  const annualKind = document.getElementById("pb-annual-kind").value || "정기휴가";
+  const btn = document.getElementById("pb-save");
+  btn.disabled = true; btn.textContent = "저장 중…";
+  try {
+    const done = await bulkApply(items, annualKind);
+    if (!done) return;   // 확인 창에서 취소
+    _paint.pend.clear();
+    render();
+  } catch (e) {
+    alert("저장 실패: " + (e.message || e) + "\n화면을 다시 불러옵니다. 저장 안 된 칸은 점선으로 남아 있습니다.");
+    try { await Promise.all([loadMonth(state.y, state.m), loadLeave(), loadAnnual()]); dtxCacheClear(); } catch (e2) { /* 화면은 그대로 */ }
+    render();
+  } finally {
+    btn.textContent = "저장";
+    updatePaintBar();
   }
 }
-function clearSelection() {
-  _selCells.clear();
-  document.querySelectorAll("#grid td.cell.selected").forEach(td => td.classList.remove("selected"));
-  updateSelBar();
-}
-// 선택 셀에 휴무/근무 일괄 적용. 기존 연차/대체휴무/경조사 장부는 모아서 확인 후 삭제(정합성).
-async function applyBulkStatus(typeKey) {
-  if (!state.isAdmin || !_selCells.size) return;
-  const def = RANGE_TYPES[typeKey];
-  if (!def) return;
-  // 휴가(annual) 종류: 일괄 바 드롭다운 값(기본 정기휴가)
-  const annualKind = document.getElementById("sel-annual-kind")?.value || "정기휴가";
-  const cells = [..._selCells].map(k => { const i = k.indexOf("|"); return { eid: k.slice(0, i), date: k.slice(i + 1) }; });
-  const empIds = [...new Set(cells.map(c => c.eid))];
-  const dates  = [...new Set(cells.map(c => c.date))];
-  const selKeys = new Set(cells.map(c => c.eid + "|" + c.date));
-  // 기존 장부 확인(교차곱 조회 후 실제 선택 쌍만 필터 — 흩어진 선택 정확도)
-  let hits = [];
-  try {
-    const [ann, lv, etc] = await Promise.all([
-      sb.from("annual_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
-      sb.from("leave_ledger").select("employee_id,date,direction").in("employee_id", empIds).in("date", dates),
-      sb.from("etc_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
-    ]);
-    if (ann.error) throw ann.error; if (lv.error) throw lv.error; if (etc.error) throw etc.error;
-    const inSel = r => selKeys.has(String(r.employee_id) + "|" + r.date);
-    hits = [
-      ...(ann.data || []).filter(inSel).map(r => ({ table: "annual_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "휴가" })),
-      ...(lv.data  || []).filter(inSel).map(r => ({ table: "leave_ledger", employee_id: r.employee_id, date: r.date, kind: r.direction === "grant" ? "대체근무" : "대체휴무" })),
-      ...(etc.data || []).filter(inSel).map(r => ({ table: "etc_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "경조사및기타" })),
-    ];
-  } catch (e) { alert("기존 기록 확인 실패: " + (e.message || e)); return; }
+
+/* 여러 칸 일괄 기록(칠하기 저장 공용) — items: [{eid, date, type}] (type = RANGE_TYPES 키, overtime 제외).
+   ★예전 하단 일괄 지정 바와 같은 순서·규칙: 기존 장부 확인 → 확인 창 → 장부 삭제 → 스케줄 기록 → 장부 기록 → 재로드.
+   ★유형이 섞여 있어도 확인 창은 한 번만 띄운다. 확인 창에서 취소하면 false(아무것도 안 바뀜). */
+async function bulkApply(items, annualKind) {
+  if (!state.isAdmin || !items.length) return false;
+  const empIds = [...new Set(items.map(c => c.eid))];
+  const dates  = [...new Set(items.map(c => c.date))];
+  const selKeys = new Set(items.map(c => c.eid + "|" + c.date));
+  // 기존 장부 확인(교차곱 조회 후 실제 칸만 필터 — 흩어진 칸 정확도)
+  const [ann, lv, etc] = await Promise.all([
+    sb.from("annual_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
+    sb.from("leave_ledger").select("employee_id,date,direction").in("employee_id", empIds).in("date", dates),
+    sb.from("etc_leave_ledger").select("employee_id,date").in("employee_id", empIds).in("date", dates),
+  ]);
+  if (ann.error) throw ann.error; if (lv.error) throw lv.error; if (etc.error) throw etc.error;
+  const inSel = r => selKeys.has(String(r.employee_id) + "|" + r.date);
+  const hits = [
+    ...(ann.data || []).filter(inSel).map(r => ({ table: "annual_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "휴가" })),
+    ...(lv.data  || []).filter(inSel).map(r => ({ table: "leave_ledger", employee_id: r.employee_id, date: r.date, kind: r.direction === "grant" ? "대체근무" : "대체휴무" })),
+    ...(etc.data || []).filter(inSel).map(r => ({ table: "etc_leave_ledger", employee_id: r.employee_id, date: r.date, kind: "경조사및기타" })),
+  ];
   if (hits.length) {
     const cntCells = new Set(hits.map(h => h.employee_id + "|" + h.date)).size;
     const byKind = {};
     hits.forEach(h => { byKind[h.kind] = (byKind[h.kind] || 0) + 1; });
     const parts = Object.entries(byKind).map(([k, n]) => `${k} ${n}일`);
-    if (!confirm(`선택한 ${_selCells.size}칸 중 ${cntCells}칸에 기록이 있습니다(${parts.join(", ")}).\n기존 기록을 취소(삭제)하고 '${def.label}'(으)로 변경할까요?`)) return;
+    if (!confirm(`바꾸는 ${items.length}칸 중 ${cntCells}칸에 기존 기록이 있습니다(${parts.join(", ")}).\n기존 기록을 지우고(잔여 환원) 새 내용으로 바꿀까요?`)) return false;
   }
-  try {
-    // 장부 삭제(선택 쌍만, 정확히). 같은 쌍·표 중복 제거.
-    const seen = new Set();
-    const delTargets = hits.filter(h => { const k = h.table + "|" + h.employee_id + "|" + h.date; if (seen.has(k)) return false; seen.add(k); return true; });
-    await Promise.all(delTargets.map(h => sb.from(h.table).delete().eq("employee_id", h.employee_id).eq("date", h.date)));
-    // 스케줄 표시: 근무/휴무는 빈 메모(유형 변경 시 초기화), 특수 유형은 유형명(applyRange memoBase 규칙). commitOverride 재사용.
-    const memo = (typeKey === "work" || typeKey === "off") ? "" : def.label;
-    await Promise.all(cells.map(c => commitOverride(c.eid, c.date, def.status, memo, null)));
-    // 장부 기록(연차/대체휴무/대체근무/경조사) — 직원별 선택 날짜만(교차곱=정확히 선택 쌍). ledgerInsertDedup 재사용(applyRange와 동일 인자).
-    if (def.ledger !== "none") {
-      const byEmp = {};
-      cells.forEach(c => { (byEmp[c.eid] = byEmp[c.eid] || []).push(c.date); });
-      for (const [eid, ds] of Object.entries(byEmp)) {
-        if (def.ledger === "annual")
-          await ledgerInsertDedup("annual_leave_ledger", [eid], ds, {},
-            (e, dt) => ({ employee_id: e, date: dt, days: 1, reason: null, source: "schedule", kind: annualKind }));
-        else if (def.ledger === "leave_use")
-          await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "use", category: "대체휴무" },
-            (e, dt) => ({ employee_id: e, date: dt, direction: "use", category: "대체휴무", days: 1, reason: null }));
-        else if (def.ledger === "leave_grant")
-          await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "grant", category: "대체근무" },
-            (e, dt) => ({ employee_id: e, date: dt, direction: "grant", category: "대체근무", days: 1, reason: null }));
-        else if (def.ledger === "etc")
-          await ledgerInsertDedup("etc_leave_ledger", [eid], ds, {},
-            (e, dt) => ({ employee_id: e, date: dt, category: "경조사및기타", reason: null, source: "schedule" }));
-      }
+  // 1) 장부 삭제(칸 단위, 정확히). 같은 쌍·표 중복 제거.
+  const seen = new Set();
+  const delTargets = hits.filter(h => { const k = h.table + "|" + h.employee_id + "|" + h.date; if (seen.has(k)) return false; seen.add(k); return true; });
+  const dels = await Promise.all(delTargets.map(h => sb.from(h.table).delete().eq("employee_id", h.employee_id).eq("date", h.date)));
+  for (const d of dels) if (d.error) throw d.error;
+  // 2) 스케줄: 패턴대로 = override 삭제(applyRange 초기화와 같음), 그 밖 = commitOverride 재사용.
+  //    메모: 근무/휴무는 빈 메모(유형 바뀌면 초기화), 특수 유형은 유형명(기존 일괄 지정 규칙).
+  await Promise.all(items.map(async c => {
+    const def = RANGE_TYPES[c.type];
+    if (def.reset) {
+      const { error } = await sb.from("schedule_overrides").delete().eq("employee_id", c.eid).eq("date", c.date);
+      if (error) throw error;
+      delete state.overrides[c.eid + "|" + c.date];
+      return;
     }
-    if (hits.length || def.ledger !== "none") { await loadLeave(); await loadAnnual(); await loadEtcMonth(); }   // 장부 변경 반영(잔여·집계·순수휴무 패널 갱신)
-    dtxCacheClear();   // 다른 달 캐시 비움(근무표 끝 다음 달 칸 수정 반영)
-    clearSelection();
-    render();
-  } catch (e) { alert("일괄 적용 실패: " + (e.message || e)); }
+    const memo = (c.type === "work" || c.type === "off") ? "" : def.label;
+    await commitOverride(c.eid, c.date, def.status, memo, null);
+  }));
+  // 3) 장부 기록 — 유형·직원별 날짜만(교차곱 = 정확히 그 칸). ledgerInsertDedup 재사용(applyRange와 같은 인자).
+  const groups = {};   // type → eid → [date]
+  items.forEach(c => {
+    if (RANGE_TYPES[c.type].ledger === "none") return;
+    ((groups[c.type] = groups[c.type] || {})[c.eid] = groups[c.type][c.eid] || []).push(c.date);
+  });
+  for (const [type, byEmp] of Object.entries(groups)) {
+    const ledger = RANGE_TYPES[type].ledger;
+    for (const [eid, ds] of Object.entries(byEmp)) {
+      if (ledger === "annual")
+        await ledgerInsertDedup("annual_leave_ledger", [eid], ds, {},
+          (e, dt) => ({ employee_id: e, date: dt, days: 1, reason: null, source: "schedule", kind: annualKind }));
+      else if (ledger === "leave_use")
+        await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "use", category: "대체휴무" },
+          (e, dt) => ({ employee_id: e, date: dt, direction: "use", category: "대체휴무", days: 1, reason: null }));
+      else if (ledger === "leave_grant")
+        await ledgerInsertDedup("leave_ledger", [eid], ds, { direction: "grant", category: "대체근무" },
+          (e, dt) => ({ employee_id: e, date: dt, direction: "grant", category: "대체근무", days: 1, reason: null }));
+      else if (ledger === "etc")
+        await ledgerInsertDedup("etc_leave_ledger", [eid], ds, {},
+          (e, dt) => ({ employee_id: e, date: dt, category: "경조사및기타", reason: null, source: "schedule" }));
+    }
+  }
+  await loadLeave(); await loadAnnual(); await loadEtcMonth();   // 잔여·집계·순수휴무 반영
+  dtxCacheClear();   // 다른 달 캐시 비움(근무표 끝 다음 달 칸 수정 반영)
+  return true;
 }
 
 /* ── 기간 지정 일괄 입력(관리자): 직원 다중 × 시작~종료일 → 유형별 스케줄 override + 장부 자동 기록 ── */
@@ -2555,6 +2762,7 @@ async function doLogin() {
   }
 }
 function doLogout() {
+  if (!paintGuard()) return;   // 저장 안 한 칠하기 확인
   state.isAdmin = false;
   clearSelection();   // 게스트 전환 시 선택 해제
   sessionStorage.removeItem("sched_admin");
@@ -2781,10 +2989,92 @@ async function savePat() {
   }
 }
 
+/* ── 내 스케줄(누구나): 이름을 한 번 고르면 이 기기에 기억 → 개인 달력 + 잔여 + 이번 2주 휴무 ──
+   조회 전용. 계산은 cellStatus·cellKindOf·leaveTotals·annualTotalsByKind·grantOfKind·pureOffInRange 재사용.
+   ★기억은 이 기기 브라우저에만(localStorage). 막혀 있으면 기억 없이 매번 고른다. */
+const MY_KEY = "sched_me";
+function myEmpId() { try { return localStorage.getItem(MY_KEY) || ""; } catch (e) { return ""; } }
+function setMyEmpId(id) { try { if (id) localStorage.setItem(MY_KEY, String(id)); else localStorage.removeItem(MY_KEY); } catch (e) { /* 기억 못 해도 동작 */ } }
+let _myPick = false;   // true = 이름 고르기 화면
+let _myReq = 0;
+function openMySheet() {
+  _myPick = !state.employees.some(e => String(e.id) === myEmpId());
+  renderMySheet();
+  openSheetEl("my-sheet");
+}
+async function myStep(delta) {
+  if (!paintGuard()) return;
+  let y = state.y, mo = state.m + delta;
+  if (mo < 1) { mo = 12; y--; } else if (mo > 12) { mo = 1; y++; }
+  document.getElementById("my-body").innerHTML = `<div class="msg">불러오는 중…</div>`;
+  await goMonth(y, mo);
+  if (!state.employees.some(e => String(e.id) === myEmpId())) _myPick = true;   // 그 달엔 재직이 아니면 다시 고르기
+  renderMySheet();
+}
+function renderMySheet() {
+  const body = document.getElementById("my-body");
+  const title = document.getElementById("my-title");
+  const nav = document.getElementById("my-nav");
+  if (_myPick) {
+    title.textContent = "내 이름 고르기";
+    nav.style.display = "none";
+    document.getElementById("my-change").style.display = "none";
+    body.innerHTML = `<div class="my-pick">${state.employees.map(e =>
+      `<button type="button" class="btn2 ghost" data-my-eid="${e.id}">${esc(e.name)}</button>`).join("")}</div>`
+      + `<p class="note">이 기기에 기억됩니다. 근무표에서 내 줄이 강조됩니다.</p>`;
+    return;
+  }
+  const emp = state.employees.find(e => String(e.id) === myEmpId());
+  const y = state.y, m = state.m, dim = daysInMonth(y, m);
+  title.textContent = `${emp.name} · ${y}년 ${m}월`;
+  nav.style.display = "";
+  document.getElementById("my-change").style.display = "";
+  const kinds = cellKindMap();
+  const lead = (weekday(y, m, 1) + 6) % 7;   // 월요일 시작(2주 블록과 같은 축)
+  let cal = ["월","화","수","목","금","토","일"].map((w, i) => `<div class="my-wd${i===5 ? " sat" : i===6 ? " sun" : ""}">${w}</div>`).join("");
+  for (let i = 0; i < lead; i++) cal += `<div class="my-day blank"></div>`;
+  let w = 0, o = 0;
+  for (let d = 1; d <= dim; d++) {
+    const ds = dateStr(y, m, d);
+    const cs = cellStatus(emp, y, m, d);
+    const k = cellKindOf(kinds, emp.id, ds, cs);
+    const ov = state.overrides[emp.id + "|" + ds];
+    const adj = (ov && ov.day_start && ov.day_end && state.isAdmin) ? ov : null;   // 시간은 관리자만(근무표와 같은 규칙)
+    cs.status === "off" ? o++ : w++;
+    const wd = weekday(y, m, d);
+    const red = state.holidays[ds] || wd === 0;
+    const lab = adj ? `${hh(adj.day_start)}-${hh(adj.day_end)}` : k ? CELL_KIND_CODE[k] : (cs.status === "off" ? "휴무" : "근무");
+    const cls = "my-day " + (cs.status === "off" ? "off" : "work") + (k ? " k-" + k : "") + (isToday(y, m, d) ? " today" : "");
+    cal += `<div class="${cls}"><span class="my-dn${red ? " sun" : wd === 6 ? " sat" : ""}">${d}</span><span class="my-lb">${lab}</span></div>`;
+  }
+  const lt = leaveTotals()[emp.id] || { grant: 0, use: 0 };
+  const bk = annualTotalsByKind()[emp.id] || { summer: 0, regular: 0 };
+  const neg = v => v < 0 ? ` class="neg"` : "";
+  const sub = lt.grant - lt.use, reg = grantOfKind(emp, "정기휴가") - bk.regular, sum = grantOfKind(emp, "여름휴가") - bk.summer;
+  const inMonth = y === today.y && m === today.m;
+  const b = restBlockOf(inMonth ? dateStr(today.y, today.m, today.d) : dateStr(y, m, 1));
+  const md = ds => ds.slice(5).replace("-", "/").replace(/^0/, "").replace("/0", "/");
+  body.innerHTML = `<div class="my-cal">${cal}</div>`
+    + `<div class="my-sum">${m}월 근무 <b>${w}</b>일 · 휴무 <b>${o}</b>일</div>`
+    + `<div class="my-sum" id="my-block">2주 휴무(${md(b.from)}~${md(b.to)}) <b>…</b> / 4</div>`
+    + `<div class="my-sum">잔여 · 대체휴무 <b${neg(sub)}>${fmtDays(sub)}</b>일 · 정기휴가 <b${neg(reg)}>${fmtDays(reg)}</b>일 · 여름휴가 <b${neg(sum)}>${fmtDays(sum)}</b>일</div>`;
+  const req = ++_myReq;
+  pureOffInRange(emp, b.from, b.to).then(r => {
+    if (req !== _myReq) return;
+    const el = document.getElementById("my-block");
+    if (el) el.querySelector("b").textContent = String(r.pure);
+  }).catch(() => {
+    if (req !== _myReq) return;
+    const el = document.getElementById("my-block");
+    if (el) el.querySelector("b").textContent = "?";
+  });
+}
+
 /* ── 탭 전환 ── */
 function setTab(tab) {
   if (tab !== "schedule") clearSelection();   // 다른 탭 가면 선택 해제(하단 바 숨김)
   state.tab = tab;
+  updatePaintBar();   // 입력 바는 스케줄 탭에서만
   document.getElementById("schedule-view").style.display = tab === "schedule" ? "" : "none";
   document.getElementById("leave-view").style.display = tab === "leave" ? "" : "none";
   document.getElementById("annual-view").style.display = tab === "annual" ? "" : "none";
@@ -3228,10 +3518,10 @@ async function saveAnnualDays() {
 }
 
 /* ── 이벤트 ── */
-document.getElementById("prev").onclick = () => step(-1);
-document.getElementById("next").onclick = () => step(1);
-document.getElementById("today-btn").onclick = () => goMonth(today.y, today.m)
-  .then(() => requestAnimationFrame(scrollToTodayCol));   // 오늘로 돌아오면 오늘 열도 다시 중앙으로
+document.getElementById("prev").onclick = () => { if (paintGuard()) step(-1); };
+document.getElementById("next").onclick = () => { if (paintGuard()) step(1); };
+document.getElementById("today-btn").onclick = () => { if (paintGuard()) goMonth(today.y, today.m)
+  .then(() => requestAnimationFrame(scrollToTodayCol)); };   // 오늘로 돌아오면 오늘 열도 다시 중앙으로
 backdrop().onclick = closeSheets;
 document.getElementById("view-close").onclick = closeSheets;
 document.getElementById("crew-close").onclick = closeSheets;
@@ -3278,8 +3568,8 @@ document.getElementById("pat-list").addEventListener("click", (e) => {
 
 // 탭 전환
 document.getElementById("tab-sched").onclick = () => setTab("schedule");
-document.getElementById("tab-leave").onclick = () => setTab("leave");
-document.getElementById("tab-annual").onclick = () => setTab("annual");
+document.getElementById("tab-leave").onclick = () => { if (paintGuard()) setTab("leave"); };
+document.getElementById("tab-annual").onclick = () => { if (paintGuard()) setTab("annual"); };
 
 // 대체휴무
 document.getElementById("leave-add-btn").onclick = openLeaveSheet;
@@ -3352,7 +3642,7 @@ document.getElementById("annual-summary").addEventListener("click", (e) => {
   renderAnnual();
 });
 
-// 셀 클릭 → 근무 조회(수정 불가). 입력은 기간 폼으로 일원화(B-2). 헤더/드래그 입력 제거.
+// 셀 클릭: 입력 중(관리자)이면 칠하기, 아니면 그 날 내용 보기. 헤더 = 전체 공지, 하단 근무 숫자 = 근무자, 이름 = 휴무 종합.
 document.getElementById("grid").addEventListener("click", (e) => {
   const evtTh = e.target.closest("th[data-evt-date]");   // 날짜 헤더/공지 라벨 → 전체 공지 팝업
   if (evtTh) { openEventPopup(evtTh.dataset.evtDate); return; }
@@ -3361,20 +3651,65 @@ document.getElementById("grid").addEventListener("click", (e) => {
   const nameTd = e.target.closest("td.name[data-eid]");   // 직원 이름 → 휴무 종합(조회)
   if (nameTd) { openCrewSummary(nameTd.dataset.eid); return; }
   const td = e.target.closest("td.cell");
-  if (!td) return;
-  if (state.isAdmin) { toggleCellSelect(td); return; }   // 관리자: 다중 선택 토글 / 게스트: 기존 조회
+  if (!td || !td.dataset.eid) return;   // 퇴사 칸(tail-na) 등
+  if (_paint.on && state.isAdmin) {
+    if (_paint.mouse) { _paint.mouse = false; return; }   // 마우스는 pointerdown에서 이미 칠함
+    paintCell(td, true);
+    return;
+  }
   openEditSheet(td.dataset.eid, td.dataset.date, td.dataset.name);
 });
+// PC 끌어서 칠하기(마우스만 — 터치는 끌면 화면이 스크롤돼야 해서 탭으로만 칠한다)
+document.getElementById("grid").addEventListener("pointerdown", (e) => {
+  if (!_paint.on || !state.isAdmin || e.pointerType !== "mouse" || e.button !== 0) return;
+  const td = e.target.closest("td.cell");
+  if (!td || !td.dataset.eid) return;
+  e.preventDefault();
+  _paint.drag = true; _paint.mouse = true;
+  paintCell(td, true);
+});
+document.getElementById("grid").addEventListener("pointerover", (e) => {
+  if (!_paint.drag || e.pointerType !== "mouse") return;
+  if (!(e.buttons & 1)) { _paint.drag = false; return; }
+  paintCell(e.target.closest("td.cell"), false);
+});
+document.addEventListener("pointerup", () => { _paint.drag = false; });
 
-// 셀 다중 선택 일괄 지정 바
-document.getElementById("sel-off").onclick    = () => applyBulkStatus("off");
-document.getElementById("sel-work").onclick   = () => applyBulkStatus("work");
-document.getElementById("sel-annual").onclick = () => applyBulkStatus("annual");
-document.getElementById("sel-luse").onclick   = () => applyBulkStatus("leave_use");
-document.getElementById("sel-lgrant").onclick = () => applyBulkStatus("leave_grant");
-document.getElementById("sel-etc").onclick    = () => applyBulkStatus("etc");
-document.getElementById("sel-clear").onclick  = clearSelection;
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _selCells.size) clearSelection(); });
+// 칠하기 입력 바
+document.getElementById("paint-btn").onclick = togglePaint;
+document.getElementById("pb-brushes").addEventListener("click", (e) => {
+  const b = e.target.closest(".pb-b");
+  if (b) setPaintBrush(b.dataset.b);
+});
+document.getElementById("pb-annual-kind").addEventListener("change", () => setPaintBrush("annual"));
+document.getElementById("pb-save").onclick = savePaint;
+document.getElementById("pb-undo").onclick = paintUndo;
+document.getElementById("pb-done").onclick = togglePaint;
+document.getElementById("pb-range").onclick = () => { if (paintGuard()) openRangeSheet(); };
+
+// 관리 메뉴(기간 입력·집계·패턴·직원·휴무일·근무시간) — 항목을 누르면 닫힌다
+document.getElementById("mmenu-btn").onclick = (e) => { e.stopPropagation(); document.getElementById("mmenu").classList.toggle("open"); };
+document.getElementById("mmenu-pop").addEventListener("click", (e) => {
+  if (!e.target.closest(".btn")) return;
+  document.getElementById("mmenu").classList.remove("open");
+  if (!paintGuard()) { e.stopPropagation(); e.preventDefault(); }   // 저장 안 한 칠하기가 있으면 먼저 확인(패턴 저장 등은 달을 다시 불러온다)
+}, true);
+document.addEventListener("click", (e) => { if (!e.target.closest("#mmenu")) document.getElementById("mmenu").classList.remove("open"); });
+
+// 내 스케줄
+document.getElementById("my-btn").onclick = openMySheet;
+document.getElementById("my-close").onclick = closeSheets;
+document.getElementById("my-prev").onclick = () => myStep(-1);
+document.getElementById("my-next").onclick = () => myStep(1);
+document.getElementById("my-change").onclick = () => { _myPick = true; renderMySheet(); };
+document.getElementById("my-body").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-my-eid]");
+  if (!b) return;
+  setMyEmpId(b.dataset.myEid);
+  _myPick = false;
+  renderMySheet();
+  render();   // 근무표에서 내 줄 강조
+});
 
 // 기간 지정 일괄 입력
 document.getElementById("range-btn").onclick = openRangeSheet;
