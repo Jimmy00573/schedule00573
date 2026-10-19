@@ -54,6 +54,10 @@
   .sw{width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,.08)}
   .sw.work{background:#fff}                     /* 근무=흰색(테두리로 표시) */
   .sw.off{background:#cbd5e1}                    /* 휴무=회색(셀과 동일 색, 대비 강화) */
+  .sw.k-vac{background:#E1F5EE}                  /* 칸 유형색과 동일 */
+  .sw.k-sub{background:#EEEDFE}
+  .sw.k-grt{background:#FAEEDA}
+  .sw.k-etc{background:#FBEAF0}
   .sw.memo{background:#fff; position:relative}
   .sw.memo::after{content:""; position:absolute; right:1px; bottom:1px; width:5px; height:5px; border-radius:50%; background:var(--memo)}
 
@@ -200,7 +204,21 @@
   .evt-chip{display:block; max-width:100%; font-size:9px; line-height:1.25; padding:1px 3px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700}
   td.cell .memo{position:absolute; right:2px; bottom:2px; width:6px; height:6px; border-radius:50%; background:var(--memo)}
   td.cell .tadj{font-size:9px; line-height:1.1; font-weight:800; color:#c2410c; letter-spacing:-0.3px}   /* 시간 조정 축약(5-14) */
+  /* 칸 유형(휴가·대체휴무·경조사·대체근무) — 옅은 배경 + 2글자 코드. td.cell.span(띠)보다 뒤라 띠도 유형색.
+     ★tail 칸은 td.cell.tail.off가 더 구체적이라 tail 선택자를 같이 적는다. */
+  td.cell.k-vac, td.cell.tail.k-vac{background:#E1F5EE}
+  td.cell.k-vac .kcode, td.cell.k-vac .span-label{color:#085041}
+  td.cell.k-sub, td.cell.tail.k-sub{background:#EEEDFE}
+  td.cell.k-sub .kcode, td.cell.k-sub .span-label{color:#3C3489}
+  td.cell.k-etc, td.cell.tail.k-etc{background:#FBEAF0}
+  td.cell.k-etc .kcode, td.cell.k-etc .span-label{color:#72243E}
+  td.cell.k-grt, td.cell.tail.k-grt{background:#FAEEDA}
+  td.cell.k-grt .kcode, td.cell.k-grt .span-label{color:#633806}
+  td.cell.tail.k-vac, td.cell.tail.k-sub, td.cell.tail.k-etc, td.cell.tail.k-grt{opacity:.75}
+  td.cell .kcode{font-size:10px; line-height:1.1; font-weight:500; letter-spacing:-0.3px}
   td.cell.selected{outline:2px solid #2563eb; outline-offset:-2px; background:#dbeafe; position:relative; z-index:2; cursor:pointer}   /* 다중 선택된 칸(관리자) */
+  /* ★선택 표시가 유형색보다 우선 — tail 유형 칸은 위 tail 규칙이 더 구체적이라 따로 덮는다(흐림도 해제) */
+  td.cell.tail.selected.k-vac, td.cell.tail.selected.k-sub, td.cell.tail.selected.k-etc, td.cell.tail.selected.k-grt{background:#dbeafe; opacity:1}
   /* 집계(하단 고정) */
   tfoot td{
     position:sticky; bottom:0; z-index:6; background:#f8fafc; text-align:center;
@@ -458,7 +476,12 @@
   <div class="legend">
     <span><i class="sw work"></i>근무</span>
     <span><i class="sw off"></i>휴무</span>
+    <span><i class="sw k-vac"></i>휴가</span>
+    <span><i class="sw k-sub"></i>대체휴무</span>
+    <span><i class="sw k-grt"></i>대체근무</span>
+    <span><i class="sw k-etc"></i>경조사</span>
     <span><i class="sw memo"></i>메모</span>
+    <span class="adm-only" style="display:none"><b style="font-size:9px;font-weight:800;color:#c2410c">7-19</b>시간조정</span>
   </div>
 
   <div class="today-crew" id="today-crew" style="display:none"></div>
@@ -1096,6 +1119,10 @@ function render() {
   // 순수 휴무 판별: 장부(연차·대체휴무/근무·경조사)에 있는 (eid|date)는 순수 휴무 아님 — 공용 isPureOffDay(집합은 한 번만 만든다)
   const ledgerDays = pureOffLedgerSet();
   const isPureOff = (eid, dstr, cs) => isPureOffDay(eid, dstr, cs.status, ledgerDays);
+  const kinds = cellKindMap();   // 칸 유형 색·코드(표시 전용) — render 1회당 1번
+  // 유형 코드 + (직접 쓴 사유가 있으면) 메모 점
+  const kindInner = (k, memo) => `<span class="kcode">${CELL_KIND_CODE[k]}</span>`
+    + ((memo && memo !== CELL_KIND_LABEL[k]) ? `<span class="memo"></span>` : "");
   // 주차(월~일) 구간 — 그 달 날짜 기준(경계 주는 그 달 부분만). weekOffs와 동일 규칙.
   const weeks = [];
   for (let d=1; d<=dim; d++){ if (d===1 || weekday(y,m,d)===1) weeks.push([]); weeks[weeks.length-1].push(d); }
@@ -1142,6 +1169,8 @@ function render() {
       if (isToday(y,m,d)) cls += " tcol";
       if (hasEvt(dateStr(y,m,d))) cls += " ecol";   // 전체 공지 컬럼 옅은 띠
       if (sp) cls += " span span-" + sp;
+      const kind = cellKindOf(kinds, emp.id, dateStr(y,m,d), cs);
+      if (kind) cls += " k-" + kind;
       if (_selCells.has(emp.id + "|" + dateStr(y,m,d))) cls += " selected";
       // 시간 조정은 관리자 전용 — 게스트에겐 툴팁에도 시간 안 나감(셀 숫자와 일관)
       const timeStr = (adj && state.isAdmin)
@@ -1154,10 +1183,11 @@ function render() {
       const attrs = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${dateStr(y,m,d)}"`
         + (memoShown ? ` data-memo="${esc(memoShown)}"` : "")
         + (titleText ? ` title="${esc(titleText)}"` : "");
-      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 단일 memo: 점
+      // 띠 첫 칸: 사유 라벨 / 띠 이어진 칸: 비움 / 시간조정: 축약(5-14) / 유형: 코드(대휴 등) / 단일 memo: 점
       const inner = labelAt[d-1] ? `<span class="span-label">${esc(cs.memo)}</span>`
         : sp ? ""
         : (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+        : kind ? kindInner(kind, memoShown)
         : (memoShown ? `<span class="memo"></span>` : "");
       row += `<td class="${cls}"${attrs}>${inner}</td>`;
     }
@@ -1173,12 +1203,15 @@ function render() {
       let cls2 = "cell tail" + first + " " + (cs.status==="off" ? "off" : (cs.patternSet ? "work" : "unset"));
       if (cs.isException) cls2 += " exc";
       if (isToday(t.y, t.m, t.d)) cls2 += " tcol";
+      const kind2 = cellKindOf(kinds, emp.id, t.ds, cs);
+      if (kind2) cls2 += " k-" + kind2;
       if (_selCells.has(emp.id + "|" + t.ds)) cls2 += " selected";
       const memoShown2 = (adj && !state.isAdmin) ? "" : cs.memo;
       const attrs2 = ` data-eid="${emp.id}" data-name="${esc(emp.name)}" data-date="${t.ds}"`
         + (memoShown2 ? ` data-memo="${esc(memoShown2)}"` : "")
         + (memoShown2 ? ` title="${esc(memoShown2)}"` : "");
       const inner2 = (adj && state.isAdmin) ? `<span class="tadj">${hh(adj.day_start)}-${hh(adj.day_end)}</span>`
+        : kind2 ? kindInner(kind2, memoShown2)
         : (memoShown2 ? `<span class="memo"></span>` : "");
       row += `<td class="${cls2}"${attrs2}>${inner2}</td>`;
     });
@@ -1434,6 +1467,34 @@ function pureOffLedgerSet() {
   set.subOff = new Set(state.ledger.filter(r => r.direction === "use").map(r => String(r.employee_id) + "|" + r.date));
   return set;
 }
+/* ── 칸 유형 표시(표시 전용) ── pureOffLedgerSet과 같은 출처로 (eid|date) → 'sub'|'vac'|'etc'|'grt'.
+   render()가 한 번만 만든다. 같은 키가 여러 장부에 있으면 sub > vac > etc > grt(pureOffInRange의 '대체휴무 우선'과 같은 기준). */
+const CELL_KIND_RANK = { sub: 4, vac: 3, etc: 2, grt: 1 };
+const CELL_KIND_CODE = { vac: "휴가", sub: "대휴", etc: "경조", grt: "대근" };
+// 유형 라벨 = RANGE_TYPES의 label. 장부가 안 불린 칸(다음 달 경조사 등)은 memo가 이 라벨과 정확히 같으면 그 유형으로 본다.
+const CELL_KIND_LABEL = { vac: "휴가", sub: "대체휴무", grt: "대체근무", etc: "경조사및기타" };
+function cellKindMap() {
+  const cur = ymStr(state.y, state.m);
+  const map = new Map();
+  const put = (r, k) => {
+    const key = String(r.employee_id) + "|" + r.date;
+    const prev = map.get(key);
+    if (!prev || CELL_KIND_RANK[k] > CELL_KIND_RANK[prev]) map.set(key, k);
+  };
+  state.ledger.forEach(r => { if (r.direction === "use") put(r, "sub"); else if (r.direction === "grant") put(r, "grt"); });
+  state.annual.forEach(r => put(r, "vac"));
+  (state.etc || []).forEach(r => put(r, "etc"));
+  Object.keys(_dtxCache).forEach(ym => { if (ym !== cur) (_dtxCache[ym].etc || []).forEach(r => put(r, "etc")); });
+  return map;
+}
+// 칸 하나의 유형 — sub/vac/etc는 휴무 칸에만, grt는 근무 칸에만. 없으면 "".
+function cellKindOf(kinds, empId, ds, cs) {
+  let k = kinds.get(String(empId) + "|" + ds) || "";
+  if (!k && cs.memo) k = Object.keys(CELL_KIND_LABEL).find(x => CELL_KIND_LABEL[x] === cs.memo) || "";
+  if (k === "grt") return cs.status === "work" ? k : "";
+  return (k && cs.status === "off") ? k : "";
+}
+
 // ledgerDays를 넘기면 그 집합을 쓴다(여러 칸을 셀 때 한 번만 만들려고). 안 넘기면 그때 만든다.
 function isPureOffDay(empId, ds, status, ledgerDays) {
   return status === "off" && !(ledgerDays || pureOffLedgerSet()).has(String(empId) + "|" + ds);
